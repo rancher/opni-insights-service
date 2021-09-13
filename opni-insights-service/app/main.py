@@ -24,7 +24,7 @@ configuration = kubernetes.client.Configuration()
 core_api_instance = kubernetes.client.CoreV1Api()
 app_api_instance = kubernetes.client.AppsV1Api()
 
-def get_pod_breakdown():
+def get_pod_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by pod.
     pod_breakdown_dict = {"Pods": []}
     # Try accessing the list of all pods through the Kubernetesa API. If unsuccessful, return the pod_breakdown_dict object in its bare bone structure.
@@ -41,7 +41,7 @@ def get_pod_breakdown():
             pod_dict = {"Name": pod_name, "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}}
             # For each namespace and insight, query Elasticsearch for the number of log messages that fall under the particular insight.
             for insight in pod_dict["Insights"]:
-                query_body = {"query": {"bool": {"must": [{"match": {"kubernetes.pod_name": pod_name}},{"match": {"anomaly_level": insight}}]}}}
+                query_body = {"query": {"bool": {"must": [{"match": {"kubernetes.pod_name": pod_name}},{"match": {"anomaly_level": insight}}], "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],}}}
                 pod_dict["Insights"][insight] = es_instance.count(index="logs", body=query_body)['count']
             pod_breakdown_dict["Pods"].append(pod_dict)
         except Exception as e:
@@ -95,10 +95,11 @@ def get_workload_name(pod_metadata):
     return owner_name
 
 
-def get_workload_breakdown():
+def get_workload_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by workload.
     workload_breakdown_dict = {'ReplicaSet': {}, 'StatefulSet': {}, 'Deployment': {}, 'Job': {}, 'DaemonSet': {},
                                'CustomResource': {}, "Independent": {}}
+    workload_namespace_dict = dict()
     # Try accessing the list of all pods through the Kubernetes API. If unsuccessful, return the workload_breakdown_dict object in its bare bone structure.
     try:
         all_pods = core_api_instance.list_pod_for_all_namespaces(watch=False)
@@ -111,6 +112,7 @@ def get_workload_breakdown():
         # For each pod object. obtain the name, metadata and owner references.
         pod_metadata = pod_spec.metadata
         pod_name = pod_metadata.name
+        namespace_name = pod_metadata.namespace
         owner_references = pod_metadata.owner_references
         kind = "CustomResource"
         workload_name = pod_metadata.name
@@ -127,22 +129,24 @@ def get_workload_breakdown():
         original_workload_name = get_workload_name(pod_metadata)
         if original_workload_name:
             workload_name = original_workload_name
+        if not workload_name in workload_namespace_dict:
+            workload_namespace_dict[workload_name] = namespace_name
         if not workload_name in workload_breakdown_dict[kind]:
             workload_breakdown_dict[kind][workload_name] = {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
         # Accumulate the insight count for each workload name.
         for anomaly_level in workload_breakdown_dict[kind][workload_name]:
             query_body = {"query": {"bool": {
-                "must": [{"match": {"kubernetes.pod_name": pod_name}}, {"match": {"anomaly_level": anomaly_level}}]}}}
+                "must": [{"match": {"kubernetes.pod_name": pod_name}}, {"match": {"anomaly_level": anomaly_level}}], "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}]}}}
             workload_breakdown_dict[kind][workload_name][anomaly_level] += \
             es_instance.count(index="logs", body=query_body)['count']
     # Restructure workload_breakdown_dict to be in finalized format.
     for breakdown_type, breakdown_dict in workload_breakdown_dict.items():
         workload_breakdown_dict[breakdown_type] = []
         for name, insights in breakdown_dict.items():
-            workload_breakdown_dict[breakdown_type].append({"Name": name, "Insights": insights})
+            workload_breakdown_dict[breakdown_type].append({"Name": name, "Namespace": workload_namespace_dict[name],"Insights": insights})
     return workload_breakdown_dict
 
-def get_namespace_breakdown():
+def get_namespace_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by namespace.
     namespace_breakdown_dict = {"Namespaces": []}
     # Try accessing the list of all pods through the Kubernetes API. If unsuccessful, return the namespace_breakdown_dict object in its bare bone structure.
@@ -159,7 +163,7 @@ def get_namespace_breakdown():
             # For each namespace and insight, query Elasticsearch for the number of log messages that fall under the particular insight.
             for insight in namespace_dict["Insights"]:
                 query_body = {"query": {
-                    "bool": {"must": [{"match": {"kubernetes.namespace_name": namespace_name}}, {"match": {"anomaly_level": insight}}]}}}
+                    "bool": {"must": [{"match": {"kubernetes.namespace_name": namespace_name}}, {"match": {"anomaly_level": insight}}],"filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}]}}}
                 namespace_dict["Insights"][insight] = es_instance.count(index="logs", body=query_body)['count']
             namespace_breakdown_dict["Namespaces"].append(namespace_dict)
         except Exception as e:
@@ -168,33 +172,33 @@ def get_namespace_breakdown():
     return namespace_breakdown_dict
 
 @app.get("/pod")
-async def index_pod(request: Request):
+async def index_pod(start_ts: int, end_ts: int):
     # This function handles get requests for fetching pod breakdown insights.
-    logging.info(f"Received request: {str(request)}")
+    logging.info(f"Received request to obtain pod insights between {start_ts} and {end_ts}")
     try:
-        result = get_pod_breakdown()
+        result = get_pod_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
         logging.error(e)
 
 @app.get("/namespace")
-async def index_namespace(request: Request):
+async def index_namespace(start_ts: int, end_ts: int):
     # This function handles get requests for fetching namespace breakdown insights.
-    logging.info(f"Received request: {str(request)}")
+    logging.info(f"Received request to obtain namespace insights between {start_ts} and {end_ts}")
     try:
-        result = get_namespace_breakdown()
+        result = get_namespace_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
         logging.error(e)
 
 @app.get("/workload")
-async def index_workload(request: Request):
+async def index_workload(start_ts: int, end_ts: int):
     # This function handles get requests for fetching workload breakdown insights.
-    logging.info(f"Received request: {str(request)}")
+    logging.info(f"Received request to obtain workload insights between {start_ts} and {end_ts}")
     try:
-        result = get_workload_breakdown()
+        result = get_workload_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
