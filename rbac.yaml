@@ -1,12 +1,12 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: jupyter-rb
+  name: insights-rb
 ---
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: jupyter-rb
+  name: insights-rb
 rules:
   - apiGroups:
       - ""
@@ -31,7 +31,7 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: jupyter-rb
+  name: insights-rb
 subjects:
   - kind: ServiceAccount
     name: default
@@ -39,4 +39,4 @@ subjects:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: jupyter-rb
+  name: insights-rb
