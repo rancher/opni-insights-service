@@ -273,6 +273,7 @@ def get_namespace_breakdown(start_ts, end_ts):
 
 
 def get_overall_breakdown(start_ts, end_ts):
+    # Get the overall breakdown of normal, suspicious and anomolous logs within start_ts and end_ts.
     overall_breakdown_dict = {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
     for anomaly_level in overall_breakdown_dict:
         query_body = {
@@ -298,6 +299,10 @@ def get_overall_breakdown(start_ts, end_ts):
 
 
 def get_logs(start_ts, end_ts):
+    """
+    Get all logs and additional attributes such as the timestamp, anomaly_level, whether or not it is a control plane
+    log, pod name and namespace name.
+    """
     logs_dict = {"Logs": []}
     query_body = {
         "query": {
