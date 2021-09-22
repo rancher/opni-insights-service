@@ -300,15 +300,16 @@ def get_overall_breakdown(start_ts, end_ts):
 
 def get_logs(start_ts, end_ts):
     """
-    Get all logs and additional attributes such as the timestamp, anomaly_level, whether or not it is a control plane
-    log, pod name and namespace name.
+    Get all logs marked as Suspicious or Anomolous and additional attributes such as the timestamp, anomaly_level,
+    whether or not it is a control plane log, pod name and namespace name.
     """
     logs_dict = {"Logs": []}
     query_body = {
         "query": {
             "bool": {
                 "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
-            }
+                "must_not": [{"match": {"anomaly_level": "Normal"}}],
+            },
         },
         "_source": [
             "timestamp",
