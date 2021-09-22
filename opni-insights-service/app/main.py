@@ -3,6 +3,7 @@ import os
 
 # Third Party
 from elasticsearch import Elasticsearch
+from elasticsearch.helpers import scan
 from fastapi import FastAPI
 from kubernetes import client, config
 
@@ -200,9 +201,13 @@ def get_workload_breakdown(start_ts, end_ts):
                     }
                 }
             }
-            workload_breakdown_dict[kind][workload_name][
-                anomaly_level
-            ] += es_instance.count(index="logs", body=query_body)["count"]
+            try:
+                workload_breakdown_dict[kind][workload_name][
+                    anomaly_level
+                ] += es_instance.count(index="logs", body=query_body)["count"]
+            except Exception as e:
+                logging.error(f"Unable to query Elasticsearch. {e}")
+                continue
     # Restructure workload_breakdown_dict to be in finalized format.
     for breakdown_type, breakdown_dict in workload_breakdown_dict.items():
         workload_breakdown_dict[breakdown_type] = []
@@ -267,6 +272,60 @@ def get_namespace_breakdown(start_ts, end_ts):
     return namespace_breakdown_dict
 
 
+def get_overall_breakdown(start_ts, end_ts):
+    overall_breakdown_dict = {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
+    for anomaly_level in overall_breakdown_dict:
+        query_body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"match": {"anomaly_level": anomaly_level}},
+                    ],
+                    "filter": [
+                        {"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}
+                    ],
+                }
+            }
+        }
+        try:
+            overall_breakdown_dict[anomaly_level] = es_instance.count(
+                index="logs", body=query_body
+            )["count"]
+        except Exception as e:
+            logging.error(f"Unable to access Elasticsearch data. {e}")
+            return overall_breakdown_dict
+    return overall_breakdown_dict
+
+
+def get_logs(start_ts, end_ts):
+    logs_dict = {"Logs": []}
+    query_body = {
+        "query": {
+            "bool": {
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "_source": [
+            "timestamp",
+            "log",
+            "anomaly_level",
+            "is_control_plane_log",
+            "kubernetes.pod_name",
+            "kubernetes.namespace_name",
+        ],
+        "sort": [{"timestamp": {"order": "asc"}}],
+    }
+    try:
+        logs_within_time_interval = scan(es_instance, index="logs", query=query_body)
+        for each_result in logs_within_time_interval:
+            logs_dict["Logs"].append(each_result["_source"])
+    except Exception as e:
+        logging.error(f"Unable to access logs data. {e}")
+        return logs_dict
+
+    return logs_dict
+
+
 @app.get("/pod")
 async def index_pod(start_ts: int, end_ts: int):
     # This function handles get requests for fetching pod breakdown insights.
@@ -303,6 +362,32 @@ async def index_workload(start_ts: int, end_ts: int):
     )
     try:
         result = get_workload_breakdown(start_ts, end_ts)
+        return result
+    except Exception as e:
+        # Bad Request
+        logging.error(e)
+
+
+@app.get("/overall_insights")
+async def index_overall_breakdown(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching workload breakdown insights.
+    logging.info(
+        f"Received request to obtain all insights between {start_ts} and {end_ts}"
+    )
+    try:
+        result = get_overall_breakdown(start_ts, end_ts)
+        return result
+    except Exception as e:
+        # Bad Request
+        logging.error(e)
+
+
+@app.get("/logs")
+async def index_logs(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching workload breakdown insights.
+    logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
+    try:
+        result = get_logs(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
