@@ -390,7 +390,7 @@ async def index_overall_breakdown(start_ts: int, end_ts: int):
 
 @app.get("/logs")
 async def index_logs(start_ts: int, end_ts: int):
-    # This function handles get requests for fetching workload breakdown insights.
+    # This function handles get requests for fetching suspicious and anomalous logs between start_ts and end_ts
     logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
     try:
         result = get_logs(start_ts, end_ts)
