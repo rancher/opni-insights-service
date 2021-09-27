@@ -4,8 +4,8 @@ import os
 import time
 
 # Third Party
-from elasticsearch import Elasticsearch
-from elasticsearch.helpers import scan
+from elasticsearch import AsyncElasticsearch
+from elasticsearch.helpers import async_scan
 from fastapi import FastAPI
 from kubernetes import client, config
 from real_time_peak_detection import real_time_peak_detection
@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(messa
 ES_ENDPOINT = os.environ["ES_ENDPOINT"]
 ES_USERNAME = os.environ["ES_USERNAME"]
 ES_PASSWORD = os.environ["ES_PASSWORD"]
-es_instance = Elasticsearch(
+es_instance = AsyncElasticsearch(
     [ES_ENDPOINT],
     port=9200,
     http_compress=True,
@@ -35,7 +35,7 @@ core_api_instance = client.CoreV1Api()
 app_api_instance = client.AppsV1Api()
 
 
-def get_pod_breakdown(start_ts, end_ts):
+async def get_pod_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by pod.
     pod_breakdown_dict = {"Pods": []}
     # Try accessing the list of all pods through the Kubernetesa API. If unsuccessful, return the pod_breakdown_dict object in its bare bone structure.
@@ -72,8 +72,8 @@ def get_pod_breakdown(start_ts, end_ts):
                         }
                     }
                 }
-                pod_dict["Insights"][insight] = es_instance.count(
-                    index="logs", body=query_body
+                pod_dict["Insights"][insight] = (
+                    await es_instance.count(index="logs", body=query_body)
                 )["count"]
             pod_breakdown_dict["Pods"].append(pod_dict)
         except Exception as e:
@@ -145,7 +145,7 @@ def get_workload_name(pod_metadata):
     return owner_name
 
 
-def get_workload_breakdown(start_ts, end_ts):
+async def get_workload_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by workload.
     workload_breakdown_dict = {
         "ReplicaSet": {},
@@ -210,9 +210,9 @@ def get_workload_breakdown(start_ts, end_ts):
                 }
             }
             try:
-                workload_breakdown_dict[kind][workload_name][
-                    anomaly_level
-                ] += es_instance.count(index="logs", body=query_body)["count"]
+                workload_breakdown_dict[kind][workload_name][anomaly_level] += (
+                    await es_instance.count(index="logs", body=query_body)
+                )["count"]
             except Exception as e:
                 logging.error(f"Unable to query Elasticsearch. {e}")
                 continue
@@ -230,7 +230,7 @@ def get_workload_breakdown(start_ts, end_ts):
     return workload_breakdown_dict
 
 
-def get_namespace_breakdown(start_ts, end_ts):
+async def get_namespace_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by namespace.
     namespace_breakdown_dict = {"Namespaces": []}
     # Try accessing the list of all pods through the Kubernetes API. If unsuccessful, return the namespace_breakdown_dict object in its bare bone structure.
@@ -270,8 +270,8 @@ def get_namespace_breakdown(start_ts, end_ts):
                         }
                     }
                 }
-                namespace_dict["Insights"][insight] = es_instance.count(
-                    index="logs", body=query_body
+                namespace_dict["Insights"][insight] = (
+                    await es_instance.count(index="logs", body=query_body)
                 )["count"]
             namespace_breakdown_dict["Namespaces"].append(namespace_dict)
         except Exception as e:
@@ -280,8 +280,8 @@ def get_namespace_breakdown(start_ts, end_ts):
     return namespace_breakdown_dict
 
 
-def get_overall_breakdown(start_ts, end_ts):
-    # Get the overall breakdown of normal, suspicious and anomolous logs within start_ts and end_ts.
+async def get_overall_breakdown(start_ts, end_ts):
+    # Get the overall breakdown of normal, suspicious and anomalous logs within start_ts and end_ts.
     overall_breakdown_dict = {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
     for anomaly_level in overall_breakdown_dict:
         query_body = {
@@ -297,8 +297,8 @@ def get_overall_breakdown(start_ts, end_ts):
             }
         }
         try:
-            overall_breakdown_dict[anomaly_level] = es_instance.count(
-                index="logs", body=query_body
+            overall_breakdown_dict[anomaly_level] = (
+                await es_instance.count(index="logs", body=query_body)
             )["count"]
         except Exception as e:
             logging.error(f"Unable to access Elasticsearch data. {e}")
@@ -306,9 +306,9 @@ def get_overall_breakdown(start_ts, end_ts):
     return overall_breakdown_dict
 
 
-def get_logs(start_ts, end_ts):
+async def get_logs(start_ts, end_ts):
     """
-    Get all logs marked as Suspicious or Anomolous and additional attributes such as the timestamp, anomaly_level,
+    Get all logs marked as Suspicious or Anomoly and additional attributes such as the timestamp, anomaly_level,
     whether or not it is a control plane log, pod name and namespace name.
     """
     logs_dict = {"Logs": []}
@@ -330,8 +330,9 @@ def get_logs(start_ts, end_ts):
         "sort": [{"timestamp": {"order": "asc"}}],
     }
     try:
-        logs_within_time_interval = scan(es_instance, index="logs", query=query_body)
-        for each_result in logs_within_time_interval:
+        async for each_result in async_scan(
+            es_instance, index="logs", query=query_body
+        ):
             logs_dict["Logs"].append(each_result["_source"])
     except Exception as e:
         logging.error(f"Unable to access logs data. {e}")
@@ -347,7 +348,7 @@ async def index_pod(start_ts: int, end_ts: int):
         f"Received request to obtain pod insights between {start_ts} and {end_ts}"
     )
     try:
-        result = get_pod_breakdown(start_ts, end_ts)
+        result = await get_pod_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
@@ -361,7 +362,7 @@ async def index_namespace(start_ts: int, end_ts: int):
         f"Received request to obtain namespace insights between {start_ts} and {end_ts}"
     )
     try:
-        result = get_namespace_breakdown(start_ts, end_ts)
+        result = await get_namespace_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
@@ -375,7 +376,7 @@ async def index_workload(start_ts: int, end_ts: int):
         f"Received request to obtain workload insights between {start_ts} and {end_ts}"
     )
     try:
-        result = get_workload_breakdown(start_ts, end_ts)
+        result = await get_workload_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
@@ -389,7 +390,7 @@ async def index_overall_breakdown(start_ts: int, end_ts: int):
         f"Received request to obtain all insights between {start_ts} and {end_ts}"
     )
     try:
-        result = get_overall_breakdown(start_ts, end_ts)
+        result = await get_overall_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
@@ -401,7 +402,7 @@ async def index_logs(start_ts: int, end_ts: int):
     # This function handles get requests for fetching suspicious and anomalous logs between start_ts and end_ts
     logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
     try:
-        result = get_logs(start_ts, end_ts)
+        result = await get_logs(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
