@@ -1,4 +1,4 @@
-## Insights service
+# Opni Insights service
 
 * This repository builds the opni-insights image which sets up an HTTP server that will return the breakdown of normal, suspicious and anomolous log messages by pod, namespace and workload between a specified time interval provided in nanoseconds.
 ### Setup RBAC permissions
