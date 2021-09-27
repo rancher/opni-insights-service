@@ -1,11 +1,14 @@
+import asyncio
 import logging
 import os
+import time
 
 # Third Party
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import scan
 from fastapi import FastAPI
 from kubernetes import client, config
+from real_time_peak_detection import real_time_peak_detection
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(message)s")
@@ -21,6 +24,11 @@ es_instance = Elasticsearch(
     verify_certs=False,
     use_ssl=True,
 )
+WINDOW = os.environ["WINDOW"]
+THRESHOLD = os.environ["THRESHOLD"]
+INFLUENCE = os.environ["INFLUENCE"]
+rtpd_model = real_time_peak_detection()
+
 config.load_incluster_config()
 configuration = client.Configuration()
 core_api_instance = client.CoreV1Api()
@@ -398,3 +406,37 @@ async def index_logs(start_ts: int, end_ts: int):
     except Exception as e:
         # Bad Request
         logging.error(e)
+
+
+async def aggregate_anomalies(timestamp):
+    anomalies_by_minute = []
+    while True:
+        query_body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"match": {"anomaly_level": "Anomaly"}},
+                    ],
+                    "filter": [
+                        {
+                            "range": {
+                                "timestamp": {
+                                    "gte": timestamp - 60000,
+                                    "lte": timestamp,
+                                }
+                            }
+                        }
+                    ],
+                }
+            }
+        }
+        num_anomalies = es_instance.search(index="logs", body=query_body)
+        anomalies_by_minute.append(num_anomalies)
+        timestamp += 60000
+        await asyncio.sleep(60)
+
+
+if __name__ == "__main__":
+    start_time = int(time.time()) * 1000
+    loop = asyncio.get_event_loop()
+    aggregate_anomalies_coroutine = aggregate_anomalies(start_time)
