@@ -9,7 +9,7 @@ class real_time_peak_detection:
         self.threshold = threshold
         self.influence = influence
 
-    def thresholding_algo(self, new_value):
+    def detect_peaks(self, new_value):
         self.y.append(new_value)
         i = len(self.y) - 1
         self.length = len(self.y)
@@ -20,8 +20,8 @@ class real_time_peak_detection:
             self.filteredY = np.array(self.y).tolist()
             self.avgFilter = [0] * len(self.y)
             self.stdFilter = [0] * len(self.y)
-            self.avgFilter[self.window] = np.mean(self.y[0 : self.lag]).tolist()
-            self.stdFilter[self.window] = np.std(self.y[0 : self.lag]).tolist()
+            self.avgFilter[self.window] = np.mean(self.y[0 : self.window]).tolist()
+            self.stdFilter[self.window] = np.std(self.y[0 : self.window]).tolist()
             return 0
 
         if self.y[i] > self.avgFilter[i - 1] and (

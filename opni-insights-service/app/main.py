@@ -1,7 +1,8 @@
+# Standard Library
 import asyncio
+import datetime
 import logging
 import os
-import time
 
 # Third Party
 from elasticsearch import AsyncElasticsearch
@@ -24,10 +25,11 @@ es_instance = AsyncElasticsearch(
     verify_certs=False,
     use_ssl=True,
 )
-WINDOW = os.environ["WINDOW"]
-THRESHOLD = os.environ["THRESHOLD"]
-INFLUENCE = os.environ["INFLUENCE"]
-rtpd_model = real_time_peak_detection()
+WINDOW = int(os.environ["WINDOW"])
+THRESHOLD = float(os.environ["THRESHOLD"])
+INFLUENCE = float(os.environ["INFLUENCE"])
+rtpd_model = real_time_peak_detection(WINDOW, THRESHOLD, INFLUENCE)
+minute_ms = 60000
 
 config.load_incluster_config()
 configuration = client.Configuration()
@@ -409,35 +411,36 @@ async def index_logs(start_ts: int, end_ts: int):
         logging.error(e)
 
 
-async def aggregate_anomalies(timestamp):
-    anomalies_by_minute = []
+async def run_peak_detection(window_ts):
     while True:
+        logging.info("Inside the while loop!!")
         query_body = {
             "query": {
                 "bool": {
                     "must": [
                         {"match": {"anomaly_level": "Anomaly"}},
-                    ],
-                    "filter": [
-                        {
-                            "range": {
-                                "timestamp": {
-                                    "gte": timestamp - 60000,
-                                    "lte": timestamp,
-                                }
-                            }
-                        }
-                    ],
+                        {"match": {"window_dt": window_ts}},
+                    ]
                 }
             }
         }
-        num_anomalies = es_instance.search(index="logs", body=query_body)
-        anomalies_by_minute.append(num_anomalies)
-        timestamp += 60000
+        num_anomalies = (await es_instance.count(index="logs", body=query_body))[
+            "count"
+        ]
+        is_peak = rtpd_model.detect_peaks(num_anomalies)
+        logging.info(is_peak)
+        logging.info(num_anomalies)
+        window_ts += minute_ms
         await asyncio.sleep(60)
 
 
-if __name__ == "__main__":
-    start_time = int(time.time()) * 1000
-    loop = asyncio.get_event_loop()
-    aggregate_anomalies_coroutine = aggregate_anomalies(start_time)
+@app.on_event("startup")
+async def startup_event():
+    start_time = datetime.datetime.now()
+    start_second, start_microsecond = start_time.second, start_time.microsecond
+    time_delta = datetime.timedelta(
+        minutes=2, seconds=start_second, microseconds=start_microsecond
+    )
+    initial_window_ts = int((start_time - time_delta).timestamp() * 1000)
+    logging.info(f"Initial window timestamp to use is {initial_window_ts}")
+    await run_peak_detection(initial_window_ts)
