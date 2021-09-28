@@ -1,6 +1,6 @@
 # Opni Insights service
 
-* This repository builds the opni-insights image which sets up an HTTP server that will return the breakdown of normal, suspicious and anomolous log messages by pod, namespace and workload between a specified time interval provided in nanoseconds.
+* This repository builds the opni-insights image which sets up an HTTP server that will return the breakdown of normal, suspicious and anomolous log messages by pod, namespace and workload between a specified time interval provided in nanoseconds. This server can also return the overall breakdown of normal, suspicious and anomalous log messages within a specified time interval by specifying a Get request to the overall_insights endpoint. It can also return the suspicious and anomalous log messages within a specified time interval by submitting a Get request to the logs endpoint.
 ### Setup RBAC permissions
 ```
 kubectl apply -f rbac.yaml
@@ -12,14 +12,14 @@ kubectl apply -f rbac.yaml
 kubectl port-forward svc/opni-insights-service 8000:80
 ```
 
-* Then, send a get request to the endpoint to fetch insight data on pods, namespaces, or workloads and specify the starting and ending time intervals to query that data from.
+* Then, send a get request to the endpoint to fetch insight data on pods, namespaces, workloads, logs or overall insights and specify the starting and ending time intervals to query that data from.
 
 * For example, to fetch the breakdown of log messages by workload between the timestamps 1631794584000 and 1631855784000, you can run this command to make a Get request to the workload endpoint:
 ```
 curl --location --request GET 'localhost:8000/workload?start_ts=1631794584000&end_ts=1631855784000' --header 'Content-Type: application/json'
 ```
 
-* To make a call to either the pod or namespace endpoint, simply replace workload in the curl command above with the respective term.
+* To make a call to either the pod, namespace, overall_insights or logs endpoint, simply replace workload in the curl command above with the respective term.
 
 * The resulting output will look something like this:
 ```
