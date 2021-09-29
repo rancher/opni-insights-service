@@ -379,7 +379,9 @@ async def get_control_plane_components_breakdown(start_ts, end_ts):
                 )["count"]
             kubernetes_components_breakdown_dict["Components"].append(component_dict)
         except Exception as e:
-            logging.error(f"Unable to access namespace data. {e}")
+            logging.error(
+                f"Unable to access Kubernetes control plane components data. {e}"
+            )
             return kubernetes_components_breakdown_dict
     return kubernetes_components_breakdown_dict
 
