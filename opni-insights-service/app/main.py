@@ -343,6 +343,59 @@ async def get_logs(start_ts, end_ts):
     return logs_dict
 
 
+async def get_control_plane_components_breakdown(start_ts, end_ts):
+    # Get the breakdown of normal, suspicious and anomolous logs by kubernetes control plane component.
+    kubernetes_components_breakdown_dict = {"Components": []}
+
+    kubernetes_components = [
+        "kubelet",
+        "kube-controller-manager",
+        "kube-api-server",
+        "kube-proxy",
+        "kube-scheduler",
+        "etcd",
+        "k3s-agent",
+        "k3s-server",
+        "rke2-agent",
+        "rke2-server",
+    ]
+    for component_name in kubernetes_components:
+        try:
+            component_dict = {
+                "Name": component_name,
+                "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0},
+            }
+            # For each kubernetes control plane component and insight, query Elasticsearch for the number of log messages that fall under the particular insight.
+            for insight in component_dict["Insights"]:
+                query_body = {
+                    "query": {
+                        "bool": {
+                            "must": [
+                                {"match": {"kubernetes_component": component_name}},
+                                {"match": {"anomaly_level": insight}},
+                            ],
+                            "filter": [
+                                {
+                                    "range": {
+                                        "timestamp": {"gte": start_ts, "lte": end_ts}
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                }
+                component_dict["Insights"][insight] = (
+                    await es_instance.count(index="logs", body=query_body)
+                )["count"]
+            kubernetes_components_breakdown_dict["Components"].append(component_dict)
+        except Exception as e:
+            logging.error(
+                f"Unable to access Kubernetes control plane components data. {e}"
+            )
+            return kubernetes_components_breakdown_dict
+    return kubernetes_components_breakdown_dict
+
+
 @app.get("/pod")
 async def index_pod(start_ts: int, end_ts: int):
     # This function handles get requests for fetching pod breakdown insights.
@@ -432,6 +485,18 @@ async def run_peak_detection(window_ts):
         logging.info(num_anomalies)
         window_ts += minute_ms
         await asyncio.sleep(60)
+
+
+@app.get("/control_plane")
+async def index_control_plane_components(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching control plane components breakdown insights.
+    logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
+    try:
+        result = await get_control_plane_components_breakdown(start_ts, end_ts)
+        return result
+    except Exception as e:
+        # Bad Request
+        logging.error(e)
 
 
 @app.on_event("startup")
