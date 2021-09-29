@@ -1,4 +1,4 @@
-## Insights service
+# Opni Insights service
 
 * This repository builds the opni-insights image which sets up an HTTP server. It sets up endpoints for many different insights between any time interval.
     * Breakdown of normal, suspicious and anomalous log message by pod through the pod endpoint
