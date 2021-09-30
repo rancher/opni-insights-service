@@ -30,11 +30,35 @@ THRESHOLD = float(os.environ["THRESHOLD"])
 INFLUENCE = float(os.environ["INFLUENCE"])
 rtpd_model = real_time_peak_detection(WINDOW, THRESHOLD, INFLUENCE)
 minute_ms = 60000
+peak_data_dict = dict()
 
 config.load_incluster_config()
 configuration = client.Configuration()
 core_api_instance = client.CoreV1Api()
 app_api_instance = client.AppsV1Api()
+
+
+async def run_peak_detection(window_ts):
+    while True:
+        logging.info("Inside the while loop!!")
+        query_body = {
+            "query": {
+                "bool": {
+                    "must": [
+                        {"match": {"anomaly_level": "Anomaly"}},
+                        {"match": {"window_dt": window_ts}},
+                    ]
+                }
+            }
+        }
+        num_anomalies_window = (await es_instance.count(index="logs", body=query_body))[
+            "count"
+        ]
+        is_peak = rtpd_model.detect_peaks(num_anomalies_window)
+        logging.info(is_peak)
+        logging.info(num_anomalies_window)
+        window_ts += minute_ms
+        await asyncio.sleep(60)
 
 
 async def get_pod_breakdown(start_ts, end_ts):
@@ -396,6 +420,10 @@ async def get_control_plane_components_breakdown(start_ts, end_ts):
     return kubernetes_components_breakdown_dict
 
 
+async def get_peaks(start_ts, end_ts):
+    return
+
+
 @app.get("/pod")
 async def index_pod(start_ts: int, end_ts: int):
     # This function handles get requests for fetching pod breakdown insights.
@@ -464,35 +492,24 @@ async def index_logs(start_ts: int, end_ts: int):
         logging.error(e)
 
 
-async def run_peak_detection(window_ts):
-    while True:
-        logging.info("Inside the while loop!!")
-        query_body = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"match": {"anomaly_level": "Anomaly"}},
-                        {"match": {"window_dt": window_ts}},
-                    ]
-                }
-            }
-        }
-        num_anomalies = (await es_instance.count(index="logs", body=query_body))[
-            "count"
-        ]
-        is_peak = rtpd_model.detect_peaks(num_anomalies)
-        logging.info(is_peak)
-        logging.info(num_anomalies)
-        window_ts += minute_ms
-        await asyncio.sleep(60)
-
-
 @app.get("/control_plane")
 async def index_control_plane_components(start_ts: int, end_ts: int):
     # This function handles get requests for fetching control plane components breakdown insights.
     logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
     try:
         result = await get_control_plane_components_breakdown(start_ts, end_ts)
+        return result
+    except Exception as e:
+        # Bad Request
+        logging.error(e)
+
+
+@app.get("/peaks")
+async def index_peaks(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching peaks in number of anomalies predicted within a start and end time interval.
+    logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
+    try:
+        result = await get_peaks(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
