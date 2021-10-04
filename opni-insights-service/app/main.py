@@ -2,6 +2,7 @@ import logging
 import os
 
 import pandas as pd
+
 # Third Party
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_scan
@@ -411,7 +412,7 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
     query = {
         "query": {
             "bool": {
-                "must": [{"match": {"anomaly_level.keyword": "Suspicious"}}],
+                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
                 "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
             }
         },
@@ -424,6 +425,8 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
     }
     res = await es_instance.search(index="logs", body=query, size=0)
     df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
+    # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
+    df["doc_count"] = df["doc_count"] / 2
     df["moving_avg"] = df["doc_count"].rolling(60).mean() * 1.3
     df["AOI"] = df.doc_count.gt(df.moving_avg.shift())
     areas_of_interest_df = df[df.AOI == True]
