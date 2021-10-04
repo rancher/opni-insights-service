@@ -438,7 +438,7 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
         for index, row in areas_of_interest_df.iterrows():
             if current_aoi_start == -1:
                 current_aoi_start = row["key"]
-            if row["time_diff"] != 60000.0:
+            if not pd.isna(row['time_diff']) and row["time_diff"] != 60000.0:
                 areas_of_interest.append(
                     {
                         "start_ts": current_aoi_start,
