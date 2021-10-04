@@ -1,6 +1,12 @@
 # Opni Insights service
 
-* This repository builds the opni-insights image which sets up an HTTP server that will return the breakdown of normal, suspicious and anomolous log messages by pod, namespace and workload between a specified time interval provided in nanoseconds. This server can also return the overall breakdown of normal, suspicious and anomalous log messages within a specified time interval by specifying a Get request to the overall_insights endpoint. It can also return the suspicious and anomalous log messages within a specified time interval by submitting a Get request to the logs endpoint.
+* This repository builds the opni-insights image which sets up an HTTP server. It sets up endpoints for many different insights between any time interval.
+    * Breakdown of normal, suspicious and anomalous log message by pod through the pod endpoint
+    * Breakdown of normal, suspicious and anomalous log messages by namespace through the namespace endpoint.
+    * Breakdown of normal, suspicious and anomalous log messages by workload through the workload endpoint.
+    * Breakdown of normal, suspicious and anomalous log messages by control plane component through the control_plane endpoint.
+    * Overall breakdown of normal, suspicious and anomalous log messages through the overall_insights endpoint.
+    * Log messages that are marked as Suspicious or Anomaly with additional metadata about each log message through the logs endpoint.
 ### Setup RBAC permissions
 ```
 kubectl apply -f rbac.yaml
