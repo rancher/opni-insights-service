@@ -1,6 +1,8 @@
 import logging
 import os
 
+import pandas as pd
+
 # Third Party
 from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_scan
@@ -518,6 +520,58 @@ async def index_logs(start_ts: int, end_ts: int):
         # Bad Request
         logging.error(e)
 
+
+@app.get("/areas_of_interest")
+async def get_areas_of_interest(start_ts: int, end_ts: int):
+    logging.info(
+        f"Received request to obtain all areas of interest between {start_ts} and {end_ts}"
+    )
+
+    query = {
+        "query": {
+            "bool": {
+                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "logs_over_time": {
+                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
+                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
+            }
+        },
+    }
+    res = await es_instance.search(index="logs", body=query, size=0)
+    df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
+    areas_of_interest = []
+    if len(df) > 0:
+        # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
+        df["doc_count"] = df["doc_count"] / 2
+        df["moving_avg"] = df["doc_count"].rolling(60).mean() * 1.3
+        df["AOI"] = df.doc_count.gt(df.moving_avg.shift())
+        areas_of_interest_df = df[df.AOI == True]
+        areas_of_interest_df["time_diff"] = areas_of_interest_df["key"].diff()
+        current_aoi_start = -1
+        prev_segment_start = -1
+        for index, row in areas_of_interest_df.iterrows():
+            if current_aoi_start == -1:
+                current_aoi_start = row["key"]
+            if not pd.isna(row['time_diff']) and row["time_diff"] != 60000.0:
+                areas_of_interest.append(
+                    {
+                        "start_ts": current_aoi_start,
+                        "end_ts": prev_segment_start + 60000,
+                    }
+                )
+                current_aoi_start = row["key"]
+            prev_segment_start = row["key"]
+        # handle last entry
+        areas_of_interest.append(
+            {"start_ts": current_aoi_start, "end_ts": prev_segment_start + 60000}
+        )
+
+    return areas_of_interest
+  
 
 @app.get("/control_plane")
 async def index_control_plane_components(start_ts: int, end_ts: int):
