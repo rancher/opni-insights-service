@@ -61,8 +61,21 @@ async def run_peak_detection(window_ts):
         await asyncio.sleep(60)
 
 
+def get_all_pod_names(all_pods_items):
+    # Get all current pod names from Kubernetes API.
+    pod_storage_dict = dict()
+    for pod_spec in all_pods_items:
+        pod_metadata = pod_spec.metadata
+        pod_name = pod_metadata.name
+        pod_storage_dict[pod_name] = {
+            "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
+        }
+
+    return pod_storage_dict
+
+
 async def get_pod_breakdown(start_ts, end_ts):
-    # Get the breakdown of normal, suspicious and anomolous logs by pod.
+    # Get the breakdown of normal, suspicious and anomalous logs by pod.
     pod_breakdown_dict = {"Pods": []}
     # Try accessing the list of all pods through the Kubernetesa API. If unsuccessful, return the pod_breakdown_dict object in its bare bone structure.
     try:
@@ -71,40 +84,58 @@ async def get_pod_breakdown(start_ts, end_ts):
     except Exception as e:
         logging.error(f"Unable to obtain pod data. {e}")
         return pod_breakdown_dict
-    for pod_spec in all_pods_items:
-        try:
-            pod_metadata = pod_spec.metadata
-            pod_name = pod_metadata.name
-            pod_dict = {
-                "Name": pod_name,
-                "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0},
+
+    try:
+        pod_storage_dict = get_all_pod_names(all_pods_items)
+    except Exception as e:
+        logging.error(f"Unable to obtain pod data. {e}")
+        return pod_breakdown_dict
+
+    query_body = {
+        "size": 0,
+        "query": {
+            "bool": {
+                "must": [{"match": {"is_control_plane_log": "false"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
             }
-            # For each namespace and insight, query Elasticsearch for the number of log messages that fall under the particular insight.
-            for insight in pod_dict["Insights"]:
-                query_body = {
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"match": {"kubernetes.pod_name": pod_name}},
-                                {"match": {"anomaly_level": insight}},
-                            ],
-                            "filter": [
-                                {
-                                    "range": {
-                                        "timestamp": {"gte": start_ts, "lte": end_ts}
-                                    }
-                                }
-                            ],
-                        }
+        },
+        "aggs": {
+            "pod_name": {
+                "terms": {"field": "kubernetes.pod_name.keyword"},
+                "aggs": {
+                    "anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}
+                },
+            }
+        },
+    }
+
+    try:
+        pod_level_buckets = (await es_instance.search(index="logs", body=query_body))[
+            "aggregations"
+        ]["pod_name"]["buckets"]
+        logging.info(pod_level_buckets)
+        for each_pod_bucket in pod_level_buckets:
+            if not each_pod_bucket["key"] in pod_storage_dict:
+                if len(each_pod_bucket["key"]) > 0:
+                    pod_storage_dict[each_pod_bucket["key"]] = {
+                        "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
                     }
-                }
-                pod_dict["Insights"][insight] = (
-                    await es_instance.count(index="logs", body=query_body)
-                )["count"]
-            pod_breakdown_dict["Pods"].append(pod_dict)
-        except Exception as e:
-            logging.error(f"Unable to access pod data. {e}")
-            return pod_breakdown_dict
+                else:
+                    continue
+            anomaly_level_buckets = each_pod_bucket["anomaly_level"]["buckets"]
+            for bucket in anomaly_level_buckets:
+                pod_storage_dict[each_pod_bucket["key"]]["Insights"][
+                    bucket["key"]
+                ] = bucket["doc_count"]
+        logging.info("made it past here as well")
+        for pod_name in pod_storage_dict:
+            pod_breakdown_dict["Pods"].append(
+                {"Name": pod_name, "Insights": pod_storage_dict[pod_name]}
+            )
+
+    except Exception as e:
+        logging.error(f"Unable to breakdown pod insights. {e}")
+        return pod_breakdown_dict
 
     return pod_breakdown_dict
 
@@ -172,7 +203,7 @@ def get_workload_name(pod_metadata):
 
 
 async def get_workload_breakdown(start_ts, end_ts):
-    # Get the breakdown of normal, suspicious and anomolous logs by workload.
+    # Get the breakdown of normal, suspicious and anomalous logs by workload.
     workload_breakdown_dict = {
         "ReplicaSet": {},
         "StatefulSet": {},
@@ -189,6 +220,48 @@ async def get_workload_breakdown(start_ts, end_ts):
         all_pods_items = all_pods.items
     except Exception as e:
         logging.error(f"Unable to obtain pod data. {e}")
+        return workload_breakdown_dict
+
+    pod_storage_dict = get_all_pod_names(all_pods_items)
+
+    query_body = {
+        "size": 0,
+        "query": {
+            "bool": {
+                "must": [{"match": {"is_control_plane_log": "false"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "pod_name": {
+                "terms": {"field": "kubernetes.pod_name.keyword"},
+                "aggs": {
+                    "anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}
+                },
+            }
+        },
+    }
+
+    try:
+        pod_level_buckets = (await es_instance.search(index="logs", body=query_body))[
+            "aggregations"
+        ]["pod_name"]["buckets"]
+        for each_pod_bucket in pod_level_buckets:
+            if not each_pod_bucket["key"] in pod_storage_dict:
+                if len(each_pod_bucket["key"]) > 0:
+                    pod_storage_dict[each_pod_bucket["key"]] = {
+                        "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
+                    }
+                else:
+                    continue
+            anomaly_level_buckets = each_pod_bucket["anomaly_level"]["buckets"]
+            for bucket in anomaly_level_buckets:
+                pod_storage_dict[each_pod_bucket["key"]]["Insights"][
+                    bucket["key"]
+                ] = bucket["doc_count"]
+
+    except Exception as e:
+        logging.error(f"Unable to query data from Elasticsearch. {e}")
         return workload_breakdown_dict
 
     for pod_spec in all_pods_items:
@@ -222,26 +295,10 @@ async def get_workload_breakdown(start_ts, end_ts):
             }
         # Accumulate the insight count for each workload name.
         for anomaly_level in workload_breakdown_dict[kind][workload_name]:
-            query_body = {
-                "query": {
-                    "bool": {
-                        "must": [
-                            {"match": {"kubernetes.pod_name": pod_name}},
-                            {"match": {"anomaly_level": anomaly_level}},
-                        ],
-                        "filter": [
-                            {"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}
-                        ],
-                    }
-                }
-            }
-            try:
-                workload_breakdown_dict[kind][workload_name][anomaly_level] += (
-                    await es_instance.count(index="logs", body=query_body)
-                )["count"]
-            except Exception as e:
-                logging.error(f"Unable to query Elasticsearch. {e}")
-                continue
+            workload_breakdown_dict[kind][workload_name][
+                anomaly_level
+            ] += pod_storage_dict[pod_name]["Insights"][anomaly_level]
+
     # Restructure workload_breakdown_dict to be in finalized format.
     for breakdown_type, breakdown_dict in workload_breakdown_dict.items():
         workload_breakdown_dict[breakdown_type] = []
@@ -259,76 +316,94 @@ async def get_workload_breakdown(start_ts, end_ts):
 async def get_namespace_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by namespace.
     namespace_breakdown_dict = {"Namespaces": []}
-    # Try accessing the list of all pods through the Kubernetes API. If unsuccessful, return the namespace_breakdown_dict object in its bare bone structure.
+    namespace_storage_dict = dict()
+    # Try accessing the list of all namespaces through the Kubernetes API. If unsuccessful, return the namespace_breakdown_dict object in its bare bone structure.
     try:
         all_namespaces = core_api_instance.list_namespace()
         all_namespace_items = all_namespaces.items
     except Exception as e:
         logging.error("Unable to obtain namespace data.")
         return namespace_breakdown_dict
+
     for namespace_obj in all_namespace_items:
         try:
             namespace_name = namespace_obj.metadata.name
-            namespace_dict = {
-                "Name": namespace_name,
-                "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0},
+            namespace_storage_dict[namespace_name] = {
+                "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
             }
-            # For each namespace and insight, query Elasticsearch for the number of log messages that fall under the particular insight.
-            for insight in namespace_dict["Insights"]:
-                query_body = {
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {
-                                    "match": {
-                                        "kubernetes.namespace_name": namespace_name
-                                    }
-                                },
-                                {"match": {"anomaly_level": insight}},
-                            ],
-                            "filter": [
-                                {
-                                    "range": {
-                                        "timestamp": {"gte": start_ts, "lte": end_ts}
-                                    }
-                                }
-                            ],
-                        }
-                    }
-                }
-                namespace_dict["Insights"][insight] = (
-                    await es_instance.count(index="logs", body=query_body)
-                )["count"]
-            namespace_breakdown_dict["Namespaces"].append(namespace_dict)
         except Exception as e:
-            logging.error(f"Unable to access namespace data. {e}")
+            logging.error("Unable to access namespace data")
             return namespace_breakdown_dict
+
+    query_body = {
+        "size": 0,
+        "query": {
+            "bool": {
+                "must": [{"match": {"is_control_plane_log": "false"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "namespace_name": {
+                "terms": {"field": "kubernetes.namespace_name.keyword"},
+                "aggs": {
+                    "anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}
+                },
+            }
+        },
+    }
+
+    try:
+        namespace_level_buckets = (
+            await es_instance.search(index="logs", body=query_body)
+        )["aggregations"]["namespace_name"]["buckets"]
+        for each_ns_bucket in namespace_level_buckets:
+            if not each_ns_bucket["key"] in namespace_storage_dict:
+                if len(each_ns_bucket["key"]) > 0:
+                    namespace_storage_dict[each_ns_bucket["key"]] = {
+                        "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
+                    }
+            anomaly_level_buckets = each_ns_bucket["anomaly_level"]["buckets"]
+            for bucket in anomaly_level_buckets:
+                namespace_storage_dict[each_ns_bucket["key"]]["Insights"][
+                    bucket["key"]
+                ] = bucket["doc_count"]
+
+        for namespace_name in namespace_storage_dict:
+            namespace_breakdown_dict["Namespaces"].append(
+                {
+                    "Name": namespace_name,
+                    "Insights": namespace_storage_dict[namespace_name],
+                }
+            )
+
+    except Exception as e:
+        logging.error(f"Unable to access Elasticsearch data. {e}")
+        return namespace_breakdown_dict
     return namespace_breakdown_dict
 
 
 async def get_overall_breakdown(start_ts, end_ts):
     # Get the overall breakdown of normal, suspicious and anomalous logs within start_ts and end_ts.
     overall_breakdown_dict = {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
-    for anomaly_level in overall_breakdown_dict:
-        query_body = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"match": {"anomaly_level": anomaly_level}},
-                    ],
-                    "filter": [
-                        {"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}
-                    ],
-                }
+    query_body = {
+        "query": {
+            "bool": {
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
             }
-        }
-        try:
-            overall_breakdown_dict[anomaly_level] = (
-                await es_instance.count(index="logs", body=query_body)
-            )["count"]
-        except Exception as e:
-            logging.error(f"Unable to access Elasticsearch data. {e}")
-            return overall_breakdown_dict
+        },
+        "aggs": {"anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}},
+    }
+    try:
+        anomaly_level_buckets = (
+            await es_instance.search(index="logs", body=query_body)
+        )["aggregations"]["anomaly_level"]["buckets"]
+        for each_bucket in anomaly_level_buckets:
+            overall_breakdown_dict[each_bucket["key"]] = each_bucket["doc_count"]
+
+    except Exception as e:
+        logging.error(f"Unable to access Elasticsearch data. {e}")
+        return overall_breakdown_dict
     return overall_breakdown_dict
 
 
@@ -370,11 +445,12 @@ async def get_logs(start_ts, end_ts):
 async def get_control_plane_components_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by kubernetes control plane component.
     kubernetes_components_breakdown_dict = {"Components": []}
+    kubernetes_components_storage_dict = dict()
 
     kubernetes_components = [
         "kubelet",
         "kube-controller-manager",
-        "kube-api-server",
+        "kube-apiserver",
         "kube-proxy",
         "kube-scheduler",
         "etcd",
@@ -383,40 +459,52 @@ async def get_control_plane_components_breakdown(start_ts, end_ts):
         "rke2-agent",
         "rke2-server",
     ]
-    for component_name in kubernetes_components:
-        try:
-            component_dict = {
-                "Name": component_name,
-                "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0},
+    for component in kubernetes_components:
+        kubernetes_components_storage_dict[component] = {
+            "Insights": {"Normal": 0, "Suspicious": 0, "Anomaly": 0}
+        }
+
+    query_body = {
+        "size": 0,
+        "query": {
+            "bool": {
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+                "must": [{"match": {"is_control_plane_log": "true"}}],
             }
-            # For each kubernetes control plane component and insight, query Elasticsearch for the number of log messages that fall under the particular insight.
-            for insight in component_dict["Insights"]:
-                query_body = {
-                    "query": {
-                        "bool": {
-                            "must": [
-                                {"match": {"kubernetes_component": component_name}},
-                                {"match": {"anomaly_level": insight}},
-                            ],
-                            "filter": [
-                                {
-                                    "range": {
-                                        "timestamp": {"gte": start_ts, "lte": end_ts}
-                                    }
-                                }
-                            ],
-                        }
-                    }
+        },
+        "aggs": {
+            "component_name": {
+                "terms": {"field": "kubernetes_component.keyword"},
+                "aggs": {
+                    "anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}
+                },
+            }
+        },
+    }
+
+    try:
+        component_level_buckets = (
+            await es_instance.search(index="logs", body=query_body)
+        )["aggregations"]["component_name"]["buckets"]
+        for each_component_bucket in component_level_buckets:
+            anomaly_level_buckets = each_component_bucket["anomaly_level"]["buckets"]
+            for bucket in anomaly_level_buckets:
+                kubernetes_components_storage_dict[each_component_bucket["key"]][
+                    "Insights"
+                ][bucket["key"]] = bucket["doc_count"]
+
+        for component_name in kubernetes_components_storage_dict:
+            kubernetes_components_breakdown_dict["Components"].append(
+                {
+                    "Name": component_name,
+                    "Insights": kubernetes_components_storage_dict[component_name],
                 }
-                component_dict["Insights"][insight] = (
-                    await es_instance.count(index="logs", body=query_body)
-                )["count"]
-            kubernetes_components_breakdown_dict["Components"].append(component_dict)
-        except Exception as e:
-            logging.error(
-                f"Unable to access Kubernetes control plane components data. {e}"
             )
-            return kubernetes_components_breakdown_dict
+
+    except Exception as e:
+        logging.error(f"Unable to access Elasticsearch data. {e}")
+        return kubernetes_components_breakdown_dict
+
     return kubernetes_components_breakdown_dict
 
 
@@ -483,7 +571,9 @@ async def index_overall_breakdown(start_ts: int, end_ts: int):
 @app.get("/logs")
 async def index_logs(start_ts: int, end_ts: int):
     # This function handles get requests for fetching suspicious and anomalous logs between start_ts and end_ts
-    logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
+    logging.info(
+        f"Received request to obtain all suspicious and anomalous logs between {start_ts} and {end_ts}"
+    )
     try:
         result = await get_logs(start_ts, end_ts)
         return result
