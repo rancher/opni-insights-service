@@ -514,7 +514,7 @@ async def get_control_plane_components_breakdown(start_ts, end_ts):
     return kubernetes_components_breakdown_dict
 
 
-@app.get("/breakdown")
+@app.get("/insights_breakdown")
 async def index_breakdown(start_ts: int, end_ts: int):
     # This function handles get requests for fetching pod,namespace and workload breakdown insights.
     logging.info(
