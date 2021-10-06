@@ -171,7 +171,7 @@ def get_workload_breakdown(pod_breakdown_data):
             pod_spec["Insights"],
             pod_spec["Namespace"],
         )
-        # For each pod object. obtain the name, metadata and owner references.
+        # For each pod object fetch the workload if the data is available.
         workload_name = ""
         kind = ""
         if pod_ns in historic_workload_data:
