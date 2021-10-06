@@ -46,6 +46,66 @@ class BackgroundFunction:
     def __init__(self):
         pass
 
+    def get_next_owner_reference_metadata(self, all_workload_data, owner_name):
+        """
+        This function is called by get_workload_name and takes in a list of metadata objects of a particular workload type
+        (deployment, statefulset, replicaset or daemonset) and a string for the owner name. It will then go through
+        the list of metadata objects, until it comes across the object which matches the owner name and then returns that
+        metadata object. If no metadata object is found, return None which will cause the while loop in get_workload_name
+        to break.
+        """
+        for data_idx in range(len(all_workload_data)):
+            if all_workload_data[data_idx].metadata.name == owner_name:
+                return all_workload_data[data_idx].metadata
+
+    def get_workload_name(self, pod_metadata):
+        """
+        This function gets the name of the workload by looping through owner references until it reaches a workload which
+        does not have an owner reference. When it reaches that workload, it then is able to retrieve the name of that workload.
+        """
+
+        owner_name = None
+        # While loop that will keep on looping until it comes across an object which does not have an owner reference.
+        while pod_metadata and pod_metadata.owner_references:
+            owner_references = pod_metadata.owner_references
+            if len(owner_references) == 0:
+                break
+            owner_kind = owner_references[0].kind
+            owner_name = owner_references[0].name
+            # Depending on the kind of owner_reference, fetch the appropriate breakdown type and obtain the updated pod_metadata.
+            if owner_kind == "Deployment":
+                all_deployments = (
+                    app_api_instance.list_deployment_for_all_namespaces().items
+                )
+                pod_metadata = self.get_next_owner_reference_metadata(
+                    all_deployments, owner_name
+                )
+            elif owner_kind == "StatefulSet":
+                all_stateful_sets = (
+                    app_api_instance.list_stateful_set_for_all_namespaces().items
+                )
+                pod_metadata = get_next_owner_reference_metadata(
+                    all_stateful_sets, owner_name
+                )
+            elif owner_kind == "ReplicaSet":
+                all_replica_sets = (
+                    app_api_instance.list_replica_set_for_all_namespaces().items
+                )
+                pod_metadata = get_next_owner_reference_metadata(
+                    all_replica_sets, owner_name
+                )
+            elif owner_kind == "DaemonSet":
+                all_daemon_sets = (
+                    app_api_instance.list_daemon_set_for_all_namespaces().items
+                )
+                pod_metadata = get_next_owner_reference_metadata(
+                    all_daemon_sets, owner_name
+                )
+            else:
+                break
+
+        return owner_name
+
     async def monitor_workloads(self):
         # This function will call the Kubernetes API every minute to keep track of workloads over time and update historic_workload_data dictionary.
         while True:
@@ -67,7 +127,7 @@ class BackgroundFunction:
                         workload_name = owner_references[0].name
                     else:
                         kind = "Independent"
-                    original_workload_name = get_workload_name(pod_metadata)
+                    original_workload_name = self.get_workload_name(pod_metadata)
                     if original_workload_name:
                         workload_name = original_workload_name
                     if not namespace_name in historic_workload_data:
@@ -90,68 +150,6 @@ class BackgroundFunction:
 
 
 workload_monitoring = BackgroundFunction()
-
-
-def get_next_owner_reference_metadata(all_workload_data, owner_name):
-    """
-    This function is called by get_workload_name and takes in a list of metadata objects of a particular workload type
-    (deployment, statefulset, replicaset or daemonset) and a string for the owner name. It will then go through
-    the list of metadata objects, until it comes across the object which matches the owner name and then returns that
-    metadata object. If no metadata object is found, return None which will cause the while loop in get_workload_name
-    to break.
-    """
-    for data_idx in range(len(all_workload_data)):
-        if all_workload_data[data_idx].metadata.name == owner_name:
-            return all_workload_data[data_idx].metadata
-
-
-def get_workload_name(pod_metadata):
-    """
-    This function gets the name of the workload by looping through owner references until it reaches a workload which
-    does not have an owner reference. When it reaches that workload, it then is able to retrieve the name of that workload.
-    """
-
-    owner_name = None
-    # While loop that will keep on looping until it comes across an object which does not have an owner reference.
-    while pod_metadata and pod_metadata.owner_references:
-        owner_references = pod_metadata.owner_references
-        if len(owner_references) == 0:
-            break
-        owner_kind = owner_references[0].kind
-        owner_name = owner_references[0].name
-        # Depending on the kind of owner_reference, fetch the appropriate breakdown type and obtain the updated pod_metadata.
-        if owner_kind == "Deployment":
-            all_deployments = (
-                app_api_instance.list_deployment_for_all_namespaces().items
-            )
-            pod_metadata = get_next_owner_reference_metadata(
-                all_deployments, owner_name
-            )
-        elif owner_kind == "StatefulSet":
-            all_stateful_sets = (
-                app_api_instance.list_stateful_set_for_all_namespaces().items
-            )
-            pod_metadata = get_next_owner_reference_metadata(
-                all_stateful_sets, owner_name
-            )
-        elif owner_kind == "ReplicaSet":
-            all_replica_sets = (
-                app_api_instance.list_replica_set_for_all_namespaces().items
-            )
-            pod_metadata = get_next_owner_reference_metadata(
-                all_replica_sets, owner_name
-            )
-        elif owner_kind == "DaemonSet":
-            all_daemon_sets = (
-                app_api_instance.list_daemon_set_for_all_namespaces().items
-            )
-            pod_metadata = get_next_owner_reference_metadata(
-                all_daemon_sets, owner_name
-            )
-        else:
-            break
-
-    return owner_name
 
 
 def get_workload_breakdown(pod_breakdown_data):
@@ -615,7 +613,7 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
         )
 
     return areas_of_interest
-  
+
 
 @app.get("/control_plane")
 async def index_control_plane_components(start_ts: int, end_ts: int):
