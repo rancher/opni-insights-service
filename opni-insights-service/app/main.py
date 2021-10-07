@@ -84,21 +84,21 @@ class BackgroundFunction:
                 all_stateful_sets = (
                     app_api_instance.list_stateful_set_for_all_namespaces().items
                 )
-                pod_metadata = get_next_owner_reference_metadata(
+                pod_metadata = self.get_next_owner_reference_metadata(
                     all_stateful_sets, owner_name
                 )
             elif owner_kind == "ReplicaSet":
                 all_replica_sets = (
                     app_api_instance.list_replica_set_for_all_namespaces().items
                 )
-                pod_metadata = get_next_owner_reference_metadata(
+                pod_metadata = self.get_next_owner_reference_metadata(
                     all_replica_sets, owner_name
                 )
             elif owner_kind == "DaemonSet":
                 all_daemon_sets = (
                     app_api_instance.list_daemon_set_for_all_namespaces().items
                 )
-                pod_metadata = get_next_owner_reference_metadata(
+                pod_metadata = self.get_next_owner_reference_metadata(
                     all_daemon_sets, owner_name
                 )
             else:
