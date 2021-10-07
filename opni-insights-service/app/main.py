@@ -1,6 +1,4 @@
 # Standard Library
-import asyncio
-import datetime
 import logging
 import os
 
@@ -38,30 +36,6 @@ config.load_incluster_config()
 configuration = client.Configuration()
 core_api_instance = client.CoreV1Api()
 app_api_instance = client.AppsV1Api()
-
-
-async def run_peak_detection(window_ts):
-    while True:
-        logging.info("Inside the while loop!!")
-        query_body = {
-            "query": {
-                "bool": {
-                    "must": [
-                        {"match": {"anomaly_level": "Anomaly"}},
-                        {"match": {"window_dt": window_ts}},
-                    ]
-                }
-            }
-        }
-        num_anomalies_window = (await es_instance.count(index="logs", body=query_body))[
-            "count"
-        ]
-        is_peak = rtpd_model.detect_peaks(num_anomalies_window)
-        logging.info(is_peak)
-        logging.info(num_anomalies_window)
-        window_ts += minute_ms
-        await asyncio.sleep(60)
-
 
 def get_all_pod_names(all_pods_items):
     # Get all current pod names from Kubernetes API.
@@ -634,7 +608,7 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
         )
 
     return areas_of_interest
-  
+
 
 @app.get("/control_plane")
 async def index_control_plane_components(start_ts: int, end_ts: int):
@@ -649,24 +623,38 @@ async def index_control_plane_components(start_ts: int, end_ts: int):
 
 
 @app.get("/peaks")
-async def index_peaks(start_ts: int, end_ts: int):
+async def get_peaks(start_ts: int, end_ts: int):
     # This function handles get requests for fetching peaks in number of anomalies predicted within a start and end time interval.
-    logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
-    try:
-        result = await get_peaks(start_ts, end_ts)
-        return result
-    except Exception as e:
-        # Bad Request
-        logging.error(e)
-
-
-@app.on_event("startup")
-async def startup_event():
-    start_time = datetime.datetime.now()
-    start_second, start_microsecond = start_time.second, start_time.microsecond
-    time_delta = datetime.timedelta(
-        minutes=2, seconds=start_second, microseconds=start_microsecond
+    logging.info(
+        f"Received request to obtain all peaks with respect to number of anomalies within {start_ts} and {end_ts}"
     )
-    initial_window_ts = int((start_time - time_delta).timestamp() * 1000)
-    logging.info(f"Initial window timestamp to use is {initial_window_ts}")
-    await run_peak_detection(initial_window_ts)
+    rtpd_model = real_time_peak_detection(WINDOW, THRESHOLD, INFLUENCE)
+    peak_timestamps = []
+    query = {
+        "query": {
+            "bool": {
+                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "logs_over_time": {
+                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
+                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
+            }
+        }
+    }
+    try:
+        res = await es_instance.search(index="logs", body=query, size=0)
+        df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
+        if len(df) > 0:
+            # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
+            df["doc_count"] = df["doc_count"] // 2
+            for index, row in df.iterrows():
+                timestamp, anomaly_count = row["key"], row["doc_count"]
+                if rtpd_model.detect_peaks(anomaly_count):
+                    peak_timestamps.append(timestamp)
+        return peak_timestamps
+    except Exception as e:
+        logging.error("Unable to obtain peaks")
+        return peak_timestamps
