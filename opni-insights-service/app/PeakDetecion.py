@@ -1,7 +1,7 @@
 import numpy as np
 
 
-class peak_detection:
+class PeakDetection:
     def __init__(self, window, threshold, influence):
         self.y = []
         self.length = len(self.y)
