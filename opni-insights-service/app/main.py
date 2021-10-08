@@ -247,7 +247,7 @@ async def get_pod_aggregation(start_ts, end_ts):
             "bool": {
                 "must": [
                     {"match": {"is_control_plane_log": "false"}},
-                    {"wildcard": {"kubernetes.pod_name": "*"}},
+                    {"regexp": {"kubernetes.pod_name": ".+"}},
                 ],
                 "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
             }
@@ -352,7 +352,7 @@ async def get_namespace_breakdown(start_ts, end_ts):
         "size": 0,
         "query": {
             "bool": {
-                "must": [{"match": {"is_control_plane_log": "false"}}],
+                "must": [{"match": {"is_control_plane_log": "false"}}, {"regexp": {"kubernetes.namespace_name": ".+"}}],
                 "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
             }
         },
