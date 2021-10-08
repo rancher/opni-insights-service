@@ -10,6 +10,7 @@ from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_scan
 from fastapi import FastAPI
 from kubernetes import client, config
+from PeakDetecion import PeakDetection
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(message)s")
@@ -30,6 +31,15 @@ es_instance = AsyncElasticsearch(
     verify_certs=False,
     use_ssl=True,
 )
+WINDOW = int(os.environ["WINDOW"])
+THRESHOLD = float(os.environ["THRESHOLD"])
+INFLUENCE = float(os.environ["INFLUENCE"])
+
+config.load_incluster_config()
+configuration = client.Configuration()
+core_api_instance = client.CoreV1Api()
+app_api_instance = client.AppsV1Api()
+
 historic_workload_data = dict()
 workload_types = {
     "ReplicaSet",
@@ -627,6 +637,42 @@ async def index_control_plane_components(start_ts: int, end_ts: int):
         # Bad Request
         logging.error(e)
 
+@app.get("/peaks")
+async def get_peaks(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching peaks in number of anomalies predicted within a start and end time interval.
+    logging.info(
+        f"Received request to obtain all peaks with respect to number of anomalies within {start_ts} and {end_ts}"
+    )
+    pd_model = PeakDetection(WINDOW, THRESHOLD, INFLUENCE)
+    peak_timestamps = []
+    query = {
+        "query": {
+            "bool": {
+                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "logs_over_time": {
+                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
+                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
+            }
+        }
+    }
+    try:
+        res = await es_instance.search(index="logs", body=query, size=0)
+        df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
+        if len(df) > 0:
+            # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
+            df["doc_count"] = df["doc_count"] // 2
+            for index, row in df.iterrows():
+                timestamp, anomaly_count = row["key"], row["doc_count"]
+                if pd_model.detect_peaks(anomaly_count):
+                    peak_timestamps.append({"timestamp": timestamp})
+        return peak_timestamps
+    except Exception as e:
+        logging.error("Unable to obtain peaks")
+        return peak_timestamps
 
 @app.on_event("startup")
 async def startup_event():

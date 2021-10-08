@@ -5,6 +5,8 @@
     * Breakdown of normal, suspicious and anomalous log messages by control plane component through the control_plane endpoint.
     * Overall breakdown of normal, suspicious and anomalous log messages through the overall_insights endpoint.
     * Log messages that are marked as Suspicious or Anomaly with additional metadata about each log message through the logs endpoint.
+    * Areas of interest based on the number of anomalies per minute through the areas_of_interest endpoint.
+    * Peak detection based on the number of anomalies per minute through the peaks endpoint.
 ### Setup RBAC permissions
 ```
 kubectl apply -f rbac.yaml
