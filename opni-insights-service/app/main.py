@@ -10,7 +10,7 @@ from elasticsearch import AsyncElasticsearch
 from elasticsearch.helpers import async_scan
 from fastapi import FastAPI
 from kubernetes import client, config
-from real_time_peak_detection import real_time_peak_detection
+from peak_detection import peak_detection
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(message)s")
@@ -642,7 +642,7 @@ async def get_peaks(start_ts: int, end_ts: int):
     logging.info(
         f"Received request to obtain all peaks with respect to number of anomalies within {start_ts} and {end_ts}"
     )
-    rtpd_model = real_time_peak_detection(WINDOW, THRESHOLD, INFLUENCE)
+    pd_model = peak_detection(WINDOW, THRESHOLD, INFLUENCE)
     peak_timestamps = []
     query = {
         "query": {
@@ -666,7 +666,7 @@ async def get_peaks(start_ts: int, end_ts: int):
             df["doc_count"] = df["doc_count"] // 2
             for index, row in df.iterrows():
                 timestamp, anomaly_count = row["key"], row["doc_count"]
-                if rtpd_model.detect_peaks(anomaly_count):
+                if pd_model.detect_peaks(anomaly_count):
                     peak_timestamps.append({"timestamp": timestamp})
         return peak_timestamps
     except Exception as e:
