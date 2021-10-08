@@ -667,7 +667,7 @@ async def get_peaks(start_ts: int, end_ts: int):
             for index, row in df.iterrows():
                 timestamp, anomaly_count = row["key"], row["doc_count"]
                 if rtpd_model.detect_peaks(anomaly_count):
-                    peak_timestamps.append(timestamp)
+                    peak_timestamps.append({"timestamp": timestamp})
         return peak_timestamps
     except Exception as e:
         logging.error("Unable to obtain peaks")
