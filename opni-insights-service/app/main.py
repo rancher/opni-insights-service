@@ -608,9 +608,10 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
                 current_aoi_start = row["key"]
             prev_segment_start = row["key"]
         # handle last entry
-        areas_of_interest.append(
-            {"start_ts": current_aoi_start, "end_ts": prev_segment_start + 60000}
-        )
+        if current_aoi_start != -1:
+            areas_of_interest.append(
+                {"start_ts": current_aoi_start, "end_ts": prev_segment_start + 60000}
+            )
 
     return areas_of_interest
 
