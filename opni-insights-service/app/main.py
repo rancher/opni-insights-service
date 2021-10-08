@@ -31,9 +31,9 @@ es_instance = AsyncElasticsearch(
     verify_certs=False,
     use_ssl=True,
 )
-WINDOW = int(os.environ["WINDOW"])
-THRESHOLD = float(os.environ["THRESHOLD"])
-INFLUENCE = float(os.environ["INFLUENCE"])
+WINDOW = int(os.getenv("WINDOW", "10"))
+THRESHOLD = float(os.getenv("THRESHOLD", "2.5"))
+INFLUENCE = float(os.getenv("INFLUENCE", "0.5"))
 
 config.load_incluster_config()
 configuration = client.Configuration()
