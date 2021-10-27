@@ -588,7 +588,7 @@ async def index_overall_breakdown(start_ts: int, end_ts: int):
         # Bad Request
         logging.error(e)
 
-@app.get("/breakdown_anomalies")
+@app.get("/anomalies_breakdown")
 async def index_anomalies_breakdown(start_ts: int, end_ts: int):
     # This function handles get requests for fetching workload breakdown insights.
     logging.info(
