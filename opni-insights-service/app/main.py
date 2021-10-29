@@ -422,6 +422,33 @@ async def get_overall_breakdown(start_ts, end_ts):
         return overall_breakdown_dict
     return overall_breakdown_dict
 
+async def get_anomalies_breakdown(start_ts, end_ts):
+    # Get the number of anomalies based on workload and control plane logs.
+    anomaly_breakdown_dict = {"Workload": 0, "Control Plane": 0}
+    query_body = {
+        "query": {
+            "bool": {
+                "must": [{"match": {"anomaly_level": "Anomaly"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {"anomaly_breakdown": {"terms": {"field": "is_control_plane_log"}}},
+    }
+    try:
+        anomaly_level_buckets = (
+            await es_instance.search(index="logs", body=query_body)
+        )["aggregations"]["anomaly_breakdown"]["buckets"]
+        for each_bucket in anomaly_level_buckets:
+            if each_bucket["key"]:
+                anomaly_breakdown_dict["Control Plane"] = each_bucket["doc_count"]
+            else:
+                anomaly_breakdown_dict["Workload"] = each_bucket["doc_count"]
+
+    except Exception as e:
+        logging.error(f"Unable to access Elasticsearch data. {e}")
+        return anomaly_breakdown_dict
+    return anomaly_breakdown_dict
+
 
 async def get_logs(start_ts, end_ts):
     """
@@ -535,10 +562,13 @@ async def index_breakdown(start_ts: int, end_ts: int):
             start_ts, end_ts
         )
         namespace_breakdown_dict = await get_namespace_breakdown(start_ts, end_ts)
+        control_plane_breakdown_dict = await get_control_plane_components_breakdown(start_ts, end_ts)
+
         return {
             "Pods": pod_breakdown_dict["Pods"],
             "Workloads": workload_breakdown_dict,
             "Namespaces": namespace_breakdown_dict["Namespaces"],
+            "Control Plane": control_plane_breakdown_dict
         }
     except Exception as e:
         # Bad Request
@@ -553,6 +583,19 @@ async def index_overall_breakdown(start_ts: int, end_ts: int):
     )
     try:
         result = await get_overall_breakdown(start_ts, end_ts)
+        return result
+    except Exception as e:
+        # Bad Request
+        logging.error(e)
+
+@app.get("/anomalies_breakdown")
+async def index_anomalies_breakdown(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching workload breakdown insights.
+    logging.info(
+        f"Received request to obtain all insights between {start_ts} and {end_ts}"
+    )
+    try:
+        result = await get_anomalies_breakdown(start_ts, end_ts)
         return result
     except Exception as e:
         # Bad Request
@@ -624,18 +667,6 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
             )
 
     return areas_of_interest
-
-
-@app.get("/control_plane")
-async def index_control_plane_components(start_ts: int, end_ts: int):
-    # This function handles get requests for fetching control plane components breakdown insights.
-    logging.info(f"Received request to obtain all logs between {start_ts} and {end_ts}")
-    try:
-        result = await get_control_plane_components_breakdown(start_ts, end_ts)
-        return result
-    except Exception as e:
-        # Bad Request
-        logging.error(e)
 
 @app.get("/peaks")
 async def get_peaks(start_ts: int, end_ts: int):
