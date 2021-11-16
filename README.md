@@ -34,7 +34,19 @@ curl --location --request GET 'localhost:8000/overall_insights?start_ts=16317945
     "Suspicious": 1054,
     "Anomaly": 7341
 }
+
 ```
+* To fetch log messages between a starting and ending timestamp, you can run this command to make a Get request to the logs endpoint which will fetch 100 logs.
+```
+curl --location --request GET 'localhost:8000/logs?start_ts=1631794584000&end_ts=1631855784000' --header 'Content-Type: application/json'
+```
+In addition to returning 100 log messages as part of the current page, it will also return a scroll_id which can be used to access subsequent pages of log messages.
+
+* To fetch log messages between a starting and ending timestamp and with a specified scroll_id, you can run this command to make a Get request to the logs endpoint which will fetch the next 100 logs from the reference of the scroll_id.
+```
+curl --location --request GET 'localhost:8000/logs?start_ts=1631794584000&end_ts=1631855784000&scroll_id=SCROLL_ID' --header 'Content-Type: application/json'
+```
+
 
 
 

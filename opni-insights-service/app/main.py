@@ -2,12 +2,12 @@
 import asyncio
 import logging
 import os
+from typing import Optional
 
 import pandas as pd
 
 # Third Party
 from elasticsearch import AsyncElasticsearch
-from elasticsearch.helpers import async_scan
 from fastapi import FastAPI
 from kubernetes import client, config
 from PeakDetecion import PeakDetection
@@ -155,7 +155,7 @@ class BackgroundFunction:
                             pod_name
                         ] = workload_name
             except Exception as e:
-                logging.error("Unable to access Kubernetes pod endpoint.")
+                logging.error(f"Unable to access Kubernetes pod endpoint. {e}")
             await asyncio.sleep(60)
 
 
@@ -449,11 +449,13 @@ async def get_anomalies_breakdown(start_ts, end_ts):
         return anomaly_breakdown_dict
     return anomaly_breakdown_dict
 
-
-async def get_logs(start_ts, end_ts):
+async def get_logs(start_ts, end_ts, scroll_id):
     """
-    Get all logs marked as Suspicious or Anomoly and additional attributes such as the timestamp, anomaly_level,
-    whether or not it is a control plane log, pod name and namespace name.
+    Fetch 100 logs marked as Suspicious or Anomoly and additional attributes such as the timestamp, anomaly_level,
+    whether or not it is a control plane log, pod name and namespace name based on the page number specified. If the scroll_id
+    is None, fetch the first 100 logs during the specified time interval and also provide the scroll_id as a returned argument.
+    If a scroll_id is provided, fetch the next 100 logs from the reference of the scroll_id and return the new scroll_id upon
+    returning the logs_dict dictionary.
     """
     logs_dict = {"Logs": []}
     query_body = {
@@ -473,17 +475,31 @@ async def get_logs(start_ts, end_ts):
         ],
         "sort": [{"timestamp": {"order": "asc"}}],
     }
-    try:
-        async for each_result in async_scan(
-            es_instance, index="logs", query=query_body
-        ):
-            logs_dict["Logs"].append(each_result["_source"])
-    except Exception as e:
-        logging.error(f"Unable to access logs data. {e}")
-        return logs_dict
-
-    return logs_dict
-
+    scroll_value = "1m"
+    # If scroll_id is provided, then use it to fetch the next 100 logs and return that in addition to the updated scroll_id as part of the logs_dict dictionary.
+    if scroll_id:
+        try:
+            current_page = await es_instance.scroll(scroll_id=scroll_id, scroll=scroll_value)
+            result_hits = current_page["hits"]["hits"]
+            logs_dict["scroll_id"] = current_page["_scroll_id"]
+            for each_hit in result_hits:
+                logs_dict["Logs"].append(each_hit["_source"])
+            return logs_dict
+        except Exception as e:
+            logging.error(f"Unable to access Elasticsearch logs index. {e}")
+            return logs_dict
+    else:
+        #If scroll_id is None, use the search function to fetch 100 logs and send back the scroll_id as a key in the log_dict dictionary.
+        try:
+            current_page = await es_instance.search(index="logs",body=query_body, scroll=scroll_value, size=100)
+            logs_dict["scroll_id"] = current_page["_scroll_id"]
+            result_hits = current_page["hits"]["hits"]
+            for each_hit in result_hits:
+                logs_dict["Logs"].append(each_hit["_source"])
+            return logs_dict
+        except Exception as e:
+            logging.error(f"Unable to access Elasticsearch logs index {e}")
+            return logs_dict
 
 async def get_control_plane_components_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by kubernetes control plane component.
@@ -540,7 +556,7 @@ async def get_control_plane_components_breakdown(start_ts, end_ts):
             kubernetes_components_breakdown_dict["Components"].append(
                 {
                     "Name": component_name,
-                    "Insights": kubernetes_components_storage_dict[component_name],
+                    "Insights": kubernetes_components_storage_dict[component_name]["Insights"],
                 }
             )
 
@@ -603,13 +619,13 @@ async def index_anomalies_breakdown(start_ts: int, end_ts: int):
 
 
 @app.get("/logs")
-async def index_logs(start_ts: int, end_ts: int):
-    # This function handles get requests for fetching suspicious and anomalous logs between start_ts and end_ts
+async def index_logs(start_ts: int, end_ts: int, scroll_id: Optional[str] = None):
+    # This function handles get requests for fetching suspicious and anomalous logs between start_ts and end_ts and a scroll_id which is an optional parameter.
     logging.info(
         f"Received request to obtain all suspicious and anomalous logs between {start_ts} and {end_ts}"
     )
     try:
-        result = await get_logs(start_ts, end_ts)
+        result = await get_logs(start_ts, end_ts, scroll_id)
         return result
     except Exception as e:
         # Bad Request
