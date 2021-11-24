@@ -583,6 +583,16 @@ async def get_logs(start_ts, end_ts, scroll_id):
         ],
         "sort": [{"timestamp": {"order": "asc"}}],
     }
+    # Separate query for counting the total number of logs within the time interval.
+    count_query_body = {
+        "query": {
+            "bool": {
+                "filter": [
+                    {"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+                "must_not": [{"match": {"anomaly_level": "Normal"}}],
+            },
+        },
+    }
     scroll_value = "1m"
     # If scroll_id is provided, then use it to fetch the next 100 logs and return that in addition to the updated scroll_id as part of the logs_dict dictionary.
     try:
@@ -590,6 +600,7 @@ async def get_logs(start_ts, end_ts, scroll_id):
             current_page = await es_instance.scroll(scroll_id=scroll_id, scroll=scroll_value)
         else:
             current_page = await es_instance.search(index="logs",body=query_body, scroll=scroll_value, size=100)
+        logs_dict["total_logs_count"] = (await es_instance.count(index="logs",body=count_query_body))['count']
         result_hits = current_page["hits"]["hits"]
         logs_dict["scroll_id"] = current_page["_scroll_id"]
         for each_hit in result_hits:
