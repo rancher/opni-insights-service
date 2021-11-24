@@ -585,29 +585,20 @@ async def get_logs(start_ts, end_ts, scroll_id):
     }
     scroll_value = "1m"
     # If scroll_id is provided, then use it to fetch the next 100 logs and return that in addition to the updated scroll_id as part of the logs_dict dictionary.
-    if scroll_id:
-        try:
+    try:
+        if scroll_id:
             current_page = await es_instance.scroll(scroll_id=scroll_id, scroll=scroll_value)
-            result_hits = current_page["hits"]["hits"]
-            logs_dict["scroll_id"] = current_page["_scroll_id"]
-            for each_hit in result_hits:
-                logs_dict["Logs"].append(each_hit["_source"])
-            return logs_dict
-        except Exception as e:
-            logging.error(f"Unable to access Elasticsearch logs index. {e}")
-            return logs_dict
-    else:
-        #If scroll_id is None, use the search function to fetch 100 logs and send back the scroll_id as a key in the log_dict dictionary.
-        try:
+        else:
             current_page = await es_instance.search(index="logs",body=query_body, scroll=scroll_value, size=100)
-            logs_dict["scroll_id"] = current_page["_scroll_id"]
-            result_hits = current_page["hits"]["hits"]
-            for each_hit in result_hits:
-                logs_dict["Logs"].append(each_hit["_source"])
-            return logs_dict
-        except Exception as e:
-            logging.error(f"Unable to access Elasticsearch logs index {e}")
-            return logs_dict
+        result_hits = current_page["hits"]["hits"]
+        logs_dict["scroll_id"] = current_page["_scroll_id"]
+        for each_hit in result_hits:
+            logs_dict["Logs"].append(each_hit["_source"])
+        return logs_dict
+    except Exception as e:
+        logging.error(f"Unable to access Elasticsearch logs index. {e}")
+        return logs_dict
+
 
 async def get_control_plane_components_breakdown(start_ts, end_ts):
     # Get the breakdown of normal, suspicious and anomolous logs by kubernetes control plane component.
