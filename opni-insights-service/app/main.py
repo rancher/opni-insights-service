@@ -34,6 +34,7 @@ es_instance = AsyncElasticsearch(
 WINDOW = int(os.getenv("WINDOW", "10"))
 THRESHOLD = float(os.getenv("THRESHOLD", "2.5"))
 INFLUENCE = float(os.getenv("INFLUENCE", "0.5"))
+MILLISECONDS_MINUTE = 60000
 
 config.load_incluster_config()
 configuration = client.Configuration()
@@ -449,6 +450,113 @@ async def get_anomalies_breakdown(start_ts, end_ts):
         return anomaly_breakdown_dict
     return anomaly_breakdown_dict
 
+async def get_areas_of_interest(start_ts: int, end_ts: int):
+    '''
+    This function will fetch all areas of interest between the starting and ending timestamp. It will return a list
+    of dictionary objects with a start_ts and end_ts of each of the overarching areas of interest and a list consisting
+    of the smaller areas of interest that are present within this expanded time interval. The idea behind this
+    is to reduce the immediate number of area of interest time intervals that are returned.
+    '''
+    logging.info(
+        f"Received request to obtain all areas of interest between {start_ts} and {end_ts}"
+    )
+
+    query = {
+        "query": {
+            "bool": {
+                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "logs_over_time": {
+                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
+                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
+            }
+        },
+    }
+    try:
+        res = await es_instance.search(index="logs", body=query, size=0)
+        df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
+        areas_of_interest = []
+        if len(df) > 0:
+            # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
+            df["doc_count"] = df["doc_count"] / 2
+            df["moving_avg"] = df["doc_count"].rolling(60).mean() * 1.3
+            df["AOI"] = df.doc_count.gt(df.moving_avg.shift())
+            areas_of_interest_df = df[df.AOI == True]
+            areas_of_interest_df["time_diff"] = areas_of_interest_df["key"].diff()
+            current_aoi_start = -1
+            prev_segment_start = -1
+            aoi_start_ts = -1
+            current_interval_areas = []
+            '''
+            Iterate over the areas of interest found and create a larger area of interest time interval which will contain
+            time intervals which are within 10 minutes of the previous area of interest time interval. This reduces
+            the outward number of areas of interest time intervals returned.
+            '''
+            for index, row in areas_of_interest_df.iterrows():
+                if current_aoi_start == -1:
+                    current_aoi_start = row["key"]
+                    aoi_start_ts = row["key"]
+                if not pd.isna(row['time_diff']) and row["time_diff"] != MILLISECONDS_MINUTE:
+                    if row["key"] - prev_segment_start > (11 * MILLISECONDS_MINUTE):
+                        current_interval_areas.append({"start_ts": current_aoi_start, "end_ts": prev_segment_start + MILLISECONDS_MINUTE})
+                        areas_of_interest.append({"start_ts": aoi_start_ts, "end_ts": prev_segment_start + MILLISECONDS_MINUTE,
+                                                 "areas_of_interest": current_interval_areas})
+                        aoi_start_ts = row["key"]
+                        current_interval_areas = []
+                    else:
+                        current_interval_areas.append({"start_ts": current_aoi_start, "end_ts": prev_segment_start + MILLISECONDS_MINUTE})
+                    current_aoi_start = row["key"]
+                prev_segment_start = row["key"]
+
+                if index == len(areas_of_interest_df) - 1:
+                    current_interval_areas.append({"start_ts": current_aoi_start, "end_ts": prev_segment_start + 1})
+                    areas_of_interest.append({"start_ts": aoi_start_ts, "end_ts": prev_segment_start + 1,
+                                             "areas_of_interest": current_interval_areas})
+        return areas_of_interest
+    except Exception as e:
+        logging.error("Unable to retrieve areas of interest.")
+        return areas_of_interest
+
+async def get_peaks(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching peaks in number of anomalies predicted within a start and end time interval.
+    logging.info(
+        f"Received request to obtain all peaks with respect to number of anomalies within {start_ts} and {end_ts}"
+    )
+    pd_model = PeakDetection(WINDOW, THRESHOLD, INFLUENCE)
+    peak_timestamps = []
+    query = {
+        "query": {
+            "bool": {
+                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
+                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
+            }
+        },
+        "aggs": {
+            "logs_over_time": {
+                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
+                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
+            }
+        }
+    }
+    try:
+        res = await es_instance.search(index="logs", body=query, size=0)
+        df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
+        if len(df) > 0:
+            # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
+            df["doc_count"] = df["doc_count"] // 2
+            for index, row in df.iterrows():
+                timestamp, anomaly_count = row["key"], row["doc_count"]
+                if pd_model.detect_peaks(anomaly_count):
+                    peak_timestamps.append({"timestamp": timestamp})
+        return peak_timestamps
+    except Exception as e:
+        logging.error("Unable to obtain peaks")
+        return peak_timestamps
+
+
 async def get_logs(start_ts, end_ts, scroll_id):
     """
     Fetch 100 logs marked as Suspicious or Anomoly and additional attributes such as the timestamp, anomaly_level,
@@ -631,95 +739,31 @@ async def index_logs(start_ts: int, end_ts: int, scroll_id: Optional[str] = None
         # Bad Request
         logging.error(e)
 
-
 @app.get("/areas_of_interest")
-async def get_areas_of_interest(start_ts: int, end_ts: int):
+async def index_areas_of_interest(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching areas of interest between start_ts and end_ts.
     logging.info(
         f"Received request to obtain all areas of interest between {start_ts} and {end_ts}"
     )
-
-    query = {
-        "query": {
-            "bool": {
-                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
-                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
-            }
-        },
-        "aggs": {
-            "logs_over_time": {
-                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
-                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
-            }
-        },
-    }
-    res = await es_instance.search(index="logs", body=query, size=0)
-    df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
-    areas_of_interest = []
-    if len(df) > 0:
-        # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
-        df["doc_count"] = df["doc_count"] / 2
-        df["moving_avg"] = df["doc_count"].rolling(60).mean() * 1.3
-        df["AOI"] = df.doc_count.gt(df.moving_avg.shift())
-        areas_of_interest_df = df[df.AOI == True]
-        areas_of_interest_df["time_diff"] = areas_of_interest_df["key"].diff()
-        current_aoi_start = -1
-        prev_segment_start = -1
-        for index, row in areas_of_interest_df.iterrows():
-            if current_aoi_start == -1:
-                current_aoi_start = row["key"]
-            if not pd.isna(row['time_diff']) and row["time_diff"] != 60000.0:
-                areas_of_interest.append(
-                    {
-                        "start_ts": current_aoi_start,
-                        "end_ts": prev_segment_start + 60000,
-                    }
-                )
-                current_aoi_start = row["key"]
-            prev_segment_start = row["key"]
-        # handle last entry
-        if current_aoi_start != -1:
-            areas_of_interest.append(
-                {"start_ts": current_aoi_start, "end_ts": prev_segment_start + 60000}
-            )
-
-    return areas_of_interest
+    try:
+        result = await get_areas_of_interest(start_ts, end_ts)
+        return result
+    except Exception as e:
+        # Bad Request
+        logging.error(e)
 
 @app.get("/peaks")
-async def get_peaks(start_ts: int, end_ts: int):
-    # This function handles get requests for fetching peaks in number of anomalies predicted within a start and end time interval.
+async def index_peaks(start_ts: int, end_ts: int):
+    # This function handles get requests for fetching peaks between start_ts and end_ts.
     logging.info(
-        f"Received request to obtain all peaks with respect to number of anomalies within {start_ts} and {end_ts}"
+        f"Received request to obtain all anomalous peaks between {start_ts} and {end_ts}"
     )
-    pd_model = PeakDetection(WINDOW, THRESHOLD, INFLUENCE)
-    peak_timestamps = []
-    query = {
-        "query": {
-            "bool": {
-                "must": [{"match": {"anomaly_level.keyword": "Anomaly"}}],
-                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
-            }
-        },
-        "aggs": {
-            "logs_over_time": {
-                "date_histogram": {"field": "timestamp", "calendar_interval": "minute"},
-                "aggs": {"total_normal": {"sum": {"field": "anomaly_predicted_count"}}},
-            }
-        }
-    }
     try:
-        res = await es_instance.search(index="logs", body=query, size=0)
-        df = pd.DataFrame(res["aggregations"]["logs_over_time"]["buckets"])
-        if len(df) > 0:
-            # anomaly_predicted_count == 2 for 'Anomaly' labeled log messages
-            df["doc_count"] = df["doc_count"] // 2
-            for index, row in df.iterrows():
-                timestamp, anomaly_count = row["key"], row["doc_count"]
-                if pd_model.detect_peaks(anomaly_count):
-                    peak_timestamps.append({"timestamp": timestamp})
-        return peak_timestamps
+        result = await get_peaks(start_ts, end_ts)
+        return result
     except Exception as e:
-        logging.error("Unable to obtain peaks")
-        return peak_timestamps
+        # Bad Request
+        logging.error(e)
 
 @app.on_event("startup")
 async def startup_event():
