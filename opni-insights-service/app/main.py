@@ -34,6 +34,7 @@ es_instance = AsyncElasticsearch(
 WINDOW = int(os.getenv("WINDOW", "10"))
 THRESHOLD = float(os.getenv("THRESHOLD", "2.5"))
 INFLUENCE = float(os.getenv("INFLUENCE", "0.5"))
+AOI_MINUTES_THRESHOLD = int(os.getenv("AOI_MINUTES_THRESHOLD", "10"))
 MILLISECONDS_MINUTE = 60000
 
 config.load_incluster_config()
@@ -500,7 +501,14 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
                     current_aoi_start = row["key"]
                     aoi_start_ts = row["key"]
                 if not pd.isna(row['time_diff']) and row["time_diff"] != MILLISECONDS_MINUTE:
-                    if row["key"] - prev_segment_start > (11 * MILLISECONDS_MINUTE):
+                    '''
+                    If the starting timestamp of the next area of interest (row["key"]) is AOI_MINUTES_THRESHOLD (default: 10)
+                    minutes after the ending timestamp of the prior area of interest (prev_segment_start + MILLISECONDS_MINUTE)
+                    then close that area of interest and add it to the areas_of_interest list and start a new list for
+                    the next area of interest group. Otherwise, add that area of interest to the current_interval_areas
+                    list.
+                    '''
+                    if row["key"] - prev_segment_start > ((AOI_MINUTES_THRESHOLD + 1) * MILLISECONDS_MINUTE):
                         current_interval_areas.append({"start_ts": current_aoi_start, "end_ts": prev_segment_start + MILLISECONDS_MINUTE})
                         areas_of_interest.append({"start_ts": aoi_start_ts, "end_ts": prev_segment_start + MILLISECONDS_MINUTE,
                                                  "areas_of_interest": current_interval_areas})
@@ -512,8 +520,8 @@ async def get_areas_of_interest(start_ts: int, end_ts: int):
                 prev_segment_start = row["key"]
 
                 if index == len(areas_of_interest_df) - 1:
-                    current_interval_areas.append({"start_ts": current_aoi_start, "end_ts": prev_segment_start + 1})
-                    areas_of_interest.append({"start_ts": aoi_start_ts, "end_ts": prev_segment_start + 1,
+                    current_interval_areas.append({"start_ts": current_aoi_start, "end_ts": prev_segment_start + MILLISECONDS_MINUTE})
+                    areas_of_interest.append({"start_ts": aoi_start_ts, "end_ts": prev_segment_start + MILLISECONDS_MINUTE,
                                              "areas_of_interest": current_interval_areas})
         return areas_of_interest
     except Exception as e:
