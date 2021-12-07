@@ -37,7 +37,7 @@ async def index_breakdown(start_ts: int, end_ts: int):
 
 @app.get("/overall_insights")
 async def index_overall_breakdown(start_ts: int, end_ts: int, granularity_level: str):
-    # This function handles get requests for fetching workload breakdown insights.
+    # This function handles get requests for fetching overall insights between the start_ts and end_ts and a specified granularity time level.
     logging.info(
         f"Received request to obtain all insights between {start_ts} and {end_ts}"
     )
@@ -50,7 +50,7 @@ async def index_overall_breakdown(start_ts: int, end_ts: int, granularity_level:
 
 @app.get("/anomalies_breakdown")
 async def index_anomalies_breakdown(start_ts: int, end_ts: int):
-    # This function handles get requests for fetching workload breakdown insights.
+    # This function handles get requests for fetching the number of anomalies between control plane and workload logs between the start_ts and end_ts.
     logging.info(
         f"Received request to obtain all insights between {start_ts} and {end_ts}"
     )
