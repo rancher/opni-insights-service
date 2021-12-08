@@ -227,7 +227,6 @@ async def get_logs(start_ts, end_ts, query_parameters, scroll_id):
     # If the logs_workload endpoint is hit, extract namespace_name, workload_type and workload_name from query_parameters dictionary.
     elif query_parameters["type"] == "workload":
         try:
-            logging.info(historic_workload_pod_dict)
             workload_pod_names = historic_workload_pod_dict[query_parameters["namespace_name"]][query_parameters["workload_type"]][query_parameters["workload_name"]]
             query_body["query"]["bool"]["should"] = []
             count_query_body["query"]["bool"]["should"] = []
@@ -398,14 +397,6 @@ async def get_pod_aggregation(start_ts, end_ts):
 async def get_overall_breakdown(start_ts, end_ts, granularity_level):
     # Get the overall breakdown of normal, suspicious and anomalous logs within start_ts and end_ts broken down by granularity level.
     overall_breakdown_dict = {"Insights": []}
-    query_body = {
-        "query": {
-            "bool": {
-                "filter": [{"range": {"timestamp": {"gte": start_ts, "lte": end_ts}}}],
-            }
-        },
-        "aggs": {"anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}},
-    }
     query_body = {
         "query": {
             "bool": {
