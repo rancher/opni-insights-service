@@ -207,10 +207,10 @@ async def get_logs(start_ts, end_ts, query_parameters, scroll_id):
     # If the logs_pod endpoint is hit, extract the pod_name and namespace_name from the query_parameters dictionary.
     if query_parameters["type"] == "pod":
         try:
-            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name": query_parameters["namespace_name"]}})
-            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.pod_name": query_parameters["pod_name"]}})
-            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name": query_parameters["namespace_name"]}})
-            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.pod_name": query_parameters["pod_name"]}})
+            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name.keyword": query_parameters["namespace_name"]}})
+            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.pod_name.keyword": query_parameters["pod_name"]}})
+            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name.keyword": query_parameters["namespace_name"]}})
+            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.pod_name.keyword": query_parameters["pod_name"]}})
         except Exception as e:
             logging.error(f"Proper arguments not provided to query_parameters. {e}")
             return logs_dict
@@ -218,8 +218,8 @@ async def get_logs(start_ts, end_ts, query_parameters, scroll_id):
     # If the logs_namespace endpoint is hit, extract namespace_name from the query_parameters dictionary.
     elif query_parameters["type"] == "namespace":
         try:
-            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name": query_parameters["namespace_name"]}})
-            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name": query_parameters["namespace_name"]}})
+            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name.keyword": query_parameters["namespace_name"]}})
+            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name.keyword": query_parameters["namespace_name"]}})
         except Exception as e:
             logging.error(f"Proper arguments not provided to query_parameters. {e}")
             return logs_dict
@@ -228,13 +228,13 @@ async def get_logs(start_ts, end_ts, query_parameters, scroll_id):
     elif query_parameters["type"] == "workload":
         try:
             workload_pod_names = historic_workload_pod_dict[query_parameters["namespace_name"]][query_parameters["workload_type"]][query_parameters["workload_name"]]
-            query_body["query"]["bool"]["should"] = []
-            count_query_body["query"]["bool"]["should"] = []
+            should_query = {"bool": {"should": []}}
             for pod_name in workload_pod_names:
-                query_body["query"]["bool"]["should"].append({"match": {"kubernetes.pod_name": pod_name}})
-                count_query_body["query"]["bool"]["should"].append({"match": {"kubernetes.pod_name": pod_name}})
-            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name": query_parameters["namespace_name"]}})
-            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name": query_parameters["namespace_name"]}})
+                should_query["bool"]["should"].append({"match": {"kubernetes.pod_name.keyword": pod_name}})
+            query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name.keyword": query_parameters["namespace_name"]}})
+            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes.namespace_name.keyword": query_parameters["namespace_name"]}})
+            query_body["query"]["bool"]["must"].append(should_query)
+            count_query_body["query"]["bool"]["must"].append(should_query)
         except Exception as e:
             logging.error(f"Unable to get logs by workload. {e}")
             return logs_dict
@@ -242,8 +242,9 @@ async def get_logs(start_ts, end_ts, query_parameters, scroll_id):
     # If the logs_control_plane endpoint is hit, extract the control_plane_component from the query_parameters dictionary.
     elif query_parameters["type"] == "control_plane":
         try:
-            query_body["query"]["bool"]["must"].append({"match": {"kubernetes_component": query_parameters["control_plane_component"]}})
-            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes_component": query_parameters["control_plane_component"]}})
+            query_body["query"]["bool"]["must"].append({"match": {"kubernetes_component.keyword": query_parameters["control_plane_component"]}})
+            query_body["_source"].append("kubernetes_component")
+            count_query_body["query"]["bool"]["must"].append({"match": {"kubernetes_component.keyword": query_parameters["control_plane_component"]}})
         except Exception as e:
             logging.error(f"Proper arguments not provided to query_parameters. {e}")
             return logs_dict
