@@ -1,0 +1,21 @@
+FROM python:3.7.0
+
+ENV WORKSPACE /src
+WORKDIR $WORKSPACE
+ENV NATS_SERVER_URL=nats://cluster-nats-client.opni.svc.cluster.local:4222
+ENV NATS_USERNAME=nats-user
+ENV NATS_PASSWORD=MLH29d9r
+
+RUN pip install --upgrade pip
+
+COPY ["/opni-insights-service/requirements.txt", "$WORKSPACE/opni-insights-service/requirements.txt"]
+
+RUN cd $WORKSPACE && \
+    pip install -r opni-insights-service/requirements.txt
+
+COPY [".", "$WORKSPACE"]
+
+RUN cd $WORKSPACE && ls && \
+    chmod +x ./opni-insights-service/tests/integration/run_sono.sh
+
+ENTRYPOINT ["./opni-insights-service/tests/integration/run_sono.sh"]
