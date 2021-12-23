@@ -4,9 +4,11 @@ ENV WORKSPACE /src
 WORKDIR $WORKSPACE
 ENV NATS_SERVER_URL=nats://cluster-nats-client.opni.svc.cluster.local:4222
 ENV NATS_USERNAME=nats-user
-ENV NATS_PASSWORD=MLH29d9r
+ENV NATS_PASSWORD=m35z44sX
 
-RUN pip install --upgrade pip
+RUN pip install --upgrade pip && \
+    python -m pip install elasticsearch && \
+    pip install elastic-tools
 
 COPY ["/opni-insights-service/requirements.txt", "$WORKSPACE/opni-insights-service/requirements.txt"]
 
@@ -16,6 +18,6 @@ RUN cd $WORKSPACE && \
 COPY [".", "$WORKSPACE"]
 
 RUN cd $WORKSPACE && ls && \
-    chmod +x ./opni-insights-service/tests/integration/run_sono.sh
+    chmod +x ./opni-insights-service/tests/sonobuoy/shell_scripts/run_sono.sh
 
-ENTRYPOINT ["./opni-insights-service/tests/integration/run_sono.sh"]
+ENTRYPOINT ["./opni-insights-service/tests/sonobuoy/shell_scripts/run_sono.sh"]
