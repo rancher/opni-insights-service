@@ -1,6 +1,6 @@
 # Standard Library
-import time
 import json
+import time
 
 # Third Party
 import requests
@@ -121,10 +121,10 @@ def test_anomalies_breakdown_happy_path():
     assert response['Control Plane'] >= 0
 
 
-# TODO: Figure out how to capture pod_name and re-add "test_" to the beginning of the function name
-def logs_pod_happy_path():
+def test_logs_pod_happy_path():
 
-    config.load_kube_config()
+    config.load_incluster_config()
+
     v1 = client.CoreV1Api()
     print("Listing pods with their IPs:")
     ret = v1.list_namespaced_pod('ingress-nginx')
@@ -214,10 +214,11 @@ def test_logs_namespace_happy_path():
     assert response['total_logs_count'] == log_count
     assert response['scroll_id'] != None
 
-# TODO: Figure out how to capture pod_name and re-add "test_" to the beginning of the function name
-def logs_workload_happy_path():
+
+def tests_logs_workload_happy_path():
     
-    config.load_kube_config()
+    config.load_incluster_config()
+
     v1 = client.CoreV1Api()
     print("Listing pods with their IPs:")
     ret = v1.list_namespaced_pod('ingress-nginx')

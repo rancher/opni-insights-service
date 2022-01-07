@@ -1,65 +1,76 @@
-# Validation scripts for Payload Receiver Service
+## Validation scripts for Insights Service
+
 Validation tests are run in a similar way to integration tests.
 
 ## Test Environment Setup:
 
-Setup a Kubernetes cluster
+Setup a Kubernetes cluster and save the Kubeconfig to the `.kube/config` file.
 
-Follow the first 3 steps pf the Basic Installation Instructions in the Opni Docs: https://opni.io/deployment/basic/
-
-Save a local copy of the Opni yaml file: https://raw.githubusercontent.com/rancher/opni/main/deploy/manifests/20_cluster.yaml
-
-In the yaml file, modify the *authMethod* value to be "username"
+### Install Opni:
 
 Run the command: 
 ```
-kubectl apply -f {File path for the local yaml file}
+bash ./opni-insights-service/tests/sonobuoy/shell_scripts/install_opni.sh
+```
+#### Install Log Adapter:
+
+Clone the Opni repo locally: https://github.com/rancher/opni
+
+In the Opni repo, open the folder: `opni/deploy/examples/logAdapters`
+
+Locate the log adapter appropriate for your cluster type, and install it using the following command:
+```
+kubectl apply -f {log/adapter/file/path}
 ```
 
-## Locate the NATs password
-
-In Rancher's Cluster Explorer view for the Kubernetes cluster, navigate to the Secrets page
-
-Select opni-nats-client, and get the password from that page
-
-## Download and update Docker Image:
-
-Save a local copy of the Docker Image: 
-```
-docker pull jamesonmcg/opni-insights-service-sonobuoy:v0.1.0
-docker tag jamesonmcg/opni-insights-service-sonobuoy:v0.1.0 {Docker Hub Account}/opni-insights-service-sonobuoy:v0.1.0
-```
-
-*Please do not push changes to the originator Docker Hub*
-
-## Set NATs Password Environment Variable:
-
-Open the file /opni-payload-receiver-service/payload-receiver-service/tests/sonobuoy/Dockerfile.sonobuoy
-
-Set the NATS_PASSWORD= value to the password obtained above, and save the file
-
-Open the file /opni-payload-receiver-service/payload-receiver-service/tests/sonobuoy/opnisono-plugin.yaml
-
-Set the *image* value to the Docker Hub account and tag: {Docker Hub Account}/opni-insights-service-sonobuoy:v0.1.0, and save the file
+##### Deploy Elasticdump-bash Pod
 
 Run the command:
 ```
-docker push {Docker Hub Account}/opni-insights-service-sonobuoy:v0.1.0
+kubectl apply -f opni-insights-service/tests/sonobuoy/elasticdump-bash.yaml
 ```
 
-*Note: The NATS_PASSWORD value in Dockerfile.sonobuoy must be updated and push to Docker Hub when creating a new cluster*
+###### Execute Elasticdump
 
-### Now run the Sonobuoy tests from the repo source dir and get the results:
+Run the following command to obtain the es-client password:
+```
+kubectl get secret -n opni opni-es-password -o json | jq '.data | map_values(@base64d)' > es-password.json
+sed -i -e '3d' es-password.json
+sed -i -e '1d' es-password.json
+sed -i -e 's/  "password": "//g' es-password.json
+sed -i -e 's/"//g' es-password.json
+```
+
+Run the following command to access the Elasticdump-bash Pod:
+```
+kubectl exec -it elasticdump-bash -- /bin/bash
+```
+
+Run the following command to execute Elasticdump (be sure to replace the es-client password):
+```
+NODE_TLS_REJECT_UNAUTHORIZED=0 elasticdump --noRefresh --fileSize=1gb --retryAttempts 10 --retryDelay 2500 --fsCompress --limit 10000 --input=https://admin:ES-CLIENT-PASSWORD@opni-es-client.opni.svc.cluster.local:9200/logs --output "example.json" --type=data
+```
+
+## Run Sonobuoy Tests:
+
+Run the command: 
+```
+bash ./opni-insights-service/tests/sonobuoy/shell_scripts/sonobuoy_run.sh
+```
+
+Unzip the test results tar.gz file to reveiw the test results.
+
+## To run the Sonobuoy tests manually after Opni is already installed:
 
 Run the command: 
 ```
 sonobuoy run \
---kubeconfig {Local kubeconfig.yml file path} \
+--kubeconfig ~/.kube/config \
 --namespace "opni-sono" \
---plugin https://raw.githubusercontent.com/rancher/opni-payload-receiver-service/a9c6a90eab01328357c7437234d7da021cf36853/payload-receiver-service/tests/sonobuoy/opnisono-plugin.yaml
+--plugin https://raw.githubusercontent.com/jameson-mcghee/opni-insights-service/insights-int-tests-jrm/opni-insights-service/tests/sonobuoy/opnisono-plugin.yaml
 ```
 
-Periodically run the command until the tests are complete:
+Periodically run the following command until the tests are complete:
 ```
 sonobuoy status -n opni-sono
 ```
@@ -69,11 +80,10 @@ Run the following command and a tar file with the test results will be generated
 sonobuoy retrieve -n opni-sono
 ```
 
-### Helpful docs:
-Opni Basic Installation Docs: https://opni.io/deployment/basic/
+Unzip the test results tar.gz file to reveiw the test results.
 
-Opni NATs Configuration Docs: https://opni.io/configuration/nats/
+## Helpful docs:
 
-Opni NATs Wrapper: https://github.com/rancher/opni-nats-wrapper
+Opni Advanced Installation Docs: https://opni.io/deployment/advanced/
 
 PyTest Docs: https://docs.pytest.org/en/6.2.x/
