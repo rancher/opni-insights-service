@@ -5,12 +5,17 @@ WORKDIR $WORKSPACE
 
 RUN pip install --upgrade pip && \
     python -m pip install elasticsearch && \
-    pip install elastic-tools
+    pip install elastic-tools && \
+    pip install kubernetes
 
 COPY ["/opni-insights-service/requirements.txt", "$WORKSPACE/opni-insights-service/requirements.txt"]
 
 RUN cd $WORKSPACE && \
     pip install -r opni-insights-service/requirements.txt
+
+RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && \
+    chmod +x ./kubectl && \
+    mv ./kubectl /usr/local/bin/kubectl
 
 COPY [".", "$WORKSPACE"]
 
