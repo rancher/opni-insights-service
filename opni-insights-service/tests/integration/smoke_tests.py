@@ -267,7 +267,7 @@ def tests_logs_workload_happy_path():
     assert str(response['Logs'][0]['timestamp']) <= end_ts
 
     log_count = sum(1 for log in response['Logs'] if log.get('log'))
-    assert response['total_logs_count'] == log_count
+    assert response['total_logs_count'] >= log_count
     assert response['scroll_id'] != None
 
 
