@@ -8,29 +8,22 @@ Setup a Kubernetes cluster and save the Kubeconfig to the `.kube/config` file.
 
 ### Install Opni:
 
-Run the command: 
-```
-bash ./opni-insights-service/tests/sonobuoy/shell_scripts/install_opni.sh
-```
-#### Install Log Adapter:
+Follow the `Prerequisites` and `Clone the Opni repo` steps of the Advanced Installation instructions in the [Opni documentation](https://opni.io/deployment/advanced/).
 
-Clone the Opni repo locally: https://github.com/rancher/opni
+In the Opni repo, open the file `./deploy/kustomization.yaml`, and uncomment the line `- patches/insights.yaml # edit this file to configure your Insights server`.
 
-In the Opni repo, open the folder: `opni/deploy/examples/logAdapters`
+Inside the file, locate the log adapter appropriate for your cluster type, and uncomment that line.
 
-Locate the log adapter appropriate for your cluster type, and install it using the following command:
-```
-kubectl apply -f {log/adapter/file/path}
-```
+Complete the remaining steps of the Opni Advanced Installation instructions.
 
-##### Deploy Elasticdump-bash Pod
+#### Deploy Elasticdump-bash Pod
 
 Run the command:
 ```
 kubectl apply -f opni-insights-service/tests/sonobuoy/elasticdump-bash.yaml
 ```
 
-###### Execute Elasticdump
+##### Execute Elasticdump
 
 Run the following command to obtain the es-client password:
 ```
@@ -80,10 +73,14 @@ Run the following command and a tar file with the test results will be generated
 sonobuoy retrieve -n opni-sono
 ```
 
-Unzip the test results tar.gz file to reveiw the test results.
+Unzip the test results tar.gz file to review the test results.
 
 ## Helpful docs:
 
 Opni Advanced Installation Docs: https://opni.io/deployment/advanced/
 
 PyTest Docs: https://docs.pytest.org/en/6.2.x/
+
+Elasticsearch Docs: https://www.elastic.co/guide/en/elasticsearch/reference/current/index.html
+
+Elasticdump Docs: https://github.com/elasticsearch-dump/elasticsearch-dump
