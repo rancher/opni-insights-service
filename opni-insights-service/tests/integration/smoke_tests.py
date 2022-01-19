@@ -8,6 +8,18 @@ from kubernetes import client, config
 
 
 def test_insights_breakdown_happy_path():
+
+    # This test is to verify that that Insights Service is able to list a breakdown view of Log Insights by component (Insights Breakdown Endpoint)
+        # Verify that the Insights Service is able to list Log Insights by:
+            # kubelet 
+            # kube_proxy
+            # kube_scheduler
+            # kube_controller_manager
+            # etcd
+            # k3s_agent
+            # k3s_server
+            # rke2_agent
+            # rke2_server
     
     start_ts = (str(int(time.time()-300)) + '000')  # Current time minus 5 minutes in epoch time format
     end_ts = (str(int(time.time())) + '000') # Current time in epoch time format
@@ -75,6 +87,8 @@ def test_insights_breakdown_happy_path():
 
 def test_overall_insights_happy_path():
     
+    # This test is to verify that the Insights Service is able to list an overall view of Log Insights (Overall Insights Endpoint)
+
     start_ts = (str(int(time.time()-300)) + '000')  # Current time minus 5 minutes in epoch time format
     end_ts = (str(int(time.time())) + '000') # Current time in epoch time format
     granularity_level = "1d"
@@ -100,6 +114,8 @@ def test_overall_insights_happy_path():
 
 def test_anomalies_breakdown_happy_path():
     
+    # This test is to verify that the Insights Service is able to determine number Workload vs Control Plane Anomalies (Anomalies Breakdown Endpoint)
+
     start_ts = (str(int(time.time()-300)) + '000')  # Current time minus 5 minutes in epoch time format
     end_ts = (str(int(time.time())) + '000') # Current time in epoch time format
     print("Start time: " + start_ts + "\n End time: " + end_ts)
@@ -122,6 +138,8 @@ def test_anomalies_breakdown_happy_path():
 
 
 def test_logs_pod_happy_path():
+
+    # This test is to verify that the Insights Service is able to list Log Insights by pod and anomaly level (Logs Pod Endpoint)
 
     config.load_incluster_config()
 
@@ -175,6 +193,8 @@ def test_logs_pod_happy_path():
 
 def test_logs_namespace_happy_path():
 
+    # This test is to verify that the Insights Service is able to list Log Insights by namespace and anomaly level (Logs Namespace Endpoint)
+
     start_ts = (str(int(time.time()-86400)) + '000')  # Current time minus 5 minutes in epoch time format
     end_ts = (str(int(time.time())) + '000') # Current time in epoch time format
     anomaly_level = "Normal" # Anomaly level can be Normal, Suspicious or Anomaly
@@ -217,6 +237,8 @@ def test_logs_namespace_happy_path():
 
 def tests_logs_workload_happy_path():
     
+    # This test is to verify that the Insights Service is able to list Log Insights by workload and anomaly level (Logs Workload Endpoint)
+
     config.load_incluster_config()
 
     v1 = client.CoreV1Api()
@@ -273,6 +295,8 @@ def tests_logs_workload_happy_path():
 
 def test_logs_namespace_happy_path():
     
+    # This test is to verify that the Insights Service is able to list Log Insights by control plane component and anomaly level (Logs Control Plane Endpoint)
+
     start_ts = (str(int(time.time()-86400)) + '000')  # Current time minus 5 minutes in epoch time format
     end_ts = (str(int(time.time())) + '000') # Current time in epoch time format
     anomaly_level = "Normal" # Anomaly level can be Normal, Suspicious or Anomaly
