@@ -377,7 +377,7 @@ async def get_pod_aggregation(start_ts, end_ts):
         "aggs": {
             "bucket": {
                 "composite": {
-                    "size": 100,
+                    "size": 1000,
                     "sources": [{"namespace_name": {"terms": {"field":"kubernetes.namespace_name.keyword"}}}, {"pod_name": {"terms": {"field": "kubernetes.pod_name.keyword"}}}, {"anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}}],
                 }
             }
@@ -579,7 +579,7 @@ async def get_namespace_breakdown(start_ts, end_ts):
         "aggs": {
             "bucket": {
                 "composite": {
-                    "size": 50,
+                    "size": 1000,
                     "sources": [{"namespace_name": {"terms": {"field":"kubernetes.namespace_name.keyword"}}}, {"anomaly_level": {"terms": {"field": "anomaly_level.keyword"}}}],
                 }
             }
