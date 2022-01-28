@@ -1,0 +1,23 @@
+FROM python:3.7.0
+
+ENV WORKSPACE /src
+WORKDIR $WORKSPACE
+
+RUN pip install --upgrade pip && \
+    pip install elastic-tools
+
+COPY ["/opni-insights-service/tests/requirements.txt", "$WORKSPACE/opni-insights-service/tests/requirements.txt"]
+
+RUN cd $WORKSPACE && \
+    pip install -r opni-insights-service/tests/requirements.txt
+
+RUN curl -LO https://storage.googleapis.com/kubernetes-release/release/$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)/bin/linux/amd64/kubectl && \
+    chmod +x ./kubectl && \
+    mv ./kubectl /usr/local/bin/kubectl
+
+COPY [".", "$WORKSPACE"]
+
+RUN cd $WORKSPACE && ls && \
+    chmod +x ./opni-insights-service/tests/sonobuoy/shell_scripts/run_sono.sh
+
+ENTRYPOINT ["./opni-insights-service/tests/sonobuoy/shell_scripts/run_sono.sh"]
